@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "5ERexrPOMcU=",
+  "success": true,
+  "projectFilePath": "/Users/marcin/CascadeProjects/PPtimer/addin/PPTimer/PPTimer.csproj",
+  "expectedPackageFiles": [
+    "/Users/marcin/.nuget/packages/microsoft.netframework.referenceassemblies/1.0.3/microsoft.netframework.referenceassemblies.1.0.3.nupkg.sha512",
+    "/Users/marcin/.nuget/packages/microsoft.netframework.referenceassemblies.net48/1.0.3/microsoft.netframework.referenceassemblies.net48.1.0.3.nupkg.sha512"
+  ],
+  "logs": []
+}

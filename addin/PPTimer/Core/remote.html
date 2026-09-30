@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PPTimer remote</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #111; --card: #1b1b1b; --line: #333; --text: #eee; --muted: #999;
+    --amber: #ffb000; --red: #eb2d2d; --accent: #3d8bfd;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: system-ui, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  main { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+
+  #time { font-size: min(20vw, 150px); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1;
+          text-align: center; padding: 10px 0; }
+  #time.warning { color: var(--amber); }
+  #time.critical, #time.expired { color: var(--red); }
+  #time.paused { opacity: .55; }
+  /* Same curve as the overlay: 2 s cosine fade down to ~12 % and back. */
+  .blink { animation: blink 2s ease-in-out infinite; }
+  @keyframes blink { 50% { opacity: .12; } }
+  #status { color: var(--muted); text-align: center; font-size: 14px; }
+
+  .row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 8px 0 0; }
+  button, input[type=text] { font: inherit; font-size: 16px; padding: 9px 14px; border-radius: 8px;
+    border: 1px solid #444; background: #2a2a2a; color: var(--text); }
+  button { cursor: pointer; }
+  button:active { background: #3a3a3a; }
+  input[type=text] { width: 96px; text-align: center; }
+
+  /* Position editor: the stage is the presenter view, the box is the timer. */
+  #stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #0b0b0b;
+           border: 1px solid var(--line); border-radius: 6px; overflow: hidden; touch-action: none; user-select: none; }
+  #stageLabel { position: absolute; left: 10px; top: 8px; color: #555; font-size: 12px; pointer-events: none; }
+  #box { position: absolute; border: 2px dashed var(--accent); background: rgba(61, 139, 253, .12); cursor: move;
+         display: flex; align-items: center; justify-content: center; overflow: hidden; touch-action: none; }
+  #box.solid { background: rgba(24, 24, 24, .92); }
+  #boxText { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; color: #fff; pointer-events: none;
+             -webkit-text-stroke: 0; }
+  #box.outline #boxText { text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 3px #000; }
+  #box.warning #boxText { color: var(--amber); }
+  #box.critical #boxText, #box.expired #boxText { color: var(--red); }
+  #box.solid.warning { background: var(--amber); } #box.solid.warning #boxText { color: #000; }
+  #box.solid.critical, #box.solid.expired { background: var(--red); } #box.solid.critical #boxText, #box.solid.expired #boxText { color: #fff; }
+  .handle { position: absolute; right: -2px; bottom: -2px; width: 18px; height: 18px; background: var(--accent);
+            cursor: nwse-resize; border-radius: 3px 0 4px 0; }
+  #posRow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-top: 10px; }
+  #posReadout { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+
+  /* Settings */
+  .opts { display: grid; grid-template-columns: 1fr; gap: 2px; }
+  .opt { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 4px 0; border-bottom: 1px solid #262626; flex-wrap: wrap; }
+  .opt:last-child { border-bottom: 0; }
+  .opt label { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 180px; cursor: pointer; }
+  .opt input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--accent); }
+  .opt input[type=text] { width: 80px; padding: 6px 8px; }
+  .opt input.wide { width: 100%; text-align: left; flex: 1 1 100%; }
+  .opt input[type=range] { flex: 1; min-width: 120px; accent-color: var(--accent); }
+  .opt .note { color: var(--muted); font-size: 13px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  [disabled] { opacity: .45; }
+  #error { color: var(--red); text-align: center; min-height: 1.2em; font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <section class="card">
+    <div id="time">--:--</div>
+    <div id="status">connecting&hellip;</div>
+    <div class="row">
+      <button data-cmd="toggle">Start / Pause</button>
+      <button data-cmd="reset">Reset</button>
+      <button data-cmd="restart">Restart</button>
+    </div>
+    <div class="row">
+      <button data-cmd="add" data-seconds="-60">&minus;1 min</button>
+      <button data-cmd="add" data-seconds="-10">&minus;10 s</button>
+      <button data-cmd="add" data-seconds="10">+10 s</button>
+      <button data-cmd="add" data-seconds="60">+1 min</button>
+    </div>
+    <div class="row">
+      <button data-cmd="set" data-seconds="300">5 min</button>
+      <button data-cmd="set" data-seconds="600">10 min</button>
+      <button data-cmd="set" data-seconds="900">15 min</button>
+      <button data-cmd="set" data-seconds="1200">20 min</button>
+      <button data-cmd="set" data-seconds="1800">30 min</button>
+    </div>
+    <div class="row">
+      <input id="timeInput" type="text" value="5:00" aria-label="Duration (m:ss)">
+      <button id="setButton">Set</button>
+      <button data-cmd="togglevisible">Show / Hide overlay</button>
+    </div>
+    <div id="error"></div>
+  </section>
+
+  <section class="card">
+    <h2>Position on the presenter view</h2>
+    <div id="stage">
+      <div id="stageLabel">Presenter view</div>
+      <div id="box"><span id="boxText">05:00</span><div class="handle" title="Drag to resize"></div></div>
+    </div>
+    <div id="posRow">
+      <span id="posReadout"></span>
+      <button id="resetPosButton">Reset position</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Colours and alerts</h2>
+    <div class="opts">
+      <div class="opt">
+        <label><input type="checkbox" data-key="warnEnabled"><span class="swatch" style="background:var(--amber)"></span> Amber from</label>
+        <input type="text" data-key="warnSeconds" data-kind="time" data-enabled-by="warnEnabled" aria-label="Amber threshold (m:ss)">
+      </div>
+      <div class="opt">
+        <label><input type="checkbox" data-key="criticalEnabled"><span class="swatch" style="background:var(--red)"></span> Red from</label>
+        <input type="text" data-key="criticalSeconds" data-kind="time" data-enabled-by="criticalEnabled" aria-label="Red threshold (m:ss)">
+      </div>
+      <div class="opt"><label><input type="checkbox" data-key="blinkAtZero"> Blink at zero</label></div>
+      <div class="opt"><label><input type="checkbox" data-key="countUp"> Count up after zero</label></div>
+      <div class="opt"><label><input type="checkbox" data-key="showMinus" data-enabled-by="countUp"> Show &ldquo;&minus;&rdquo; while over time</label></div>
+      <div class="opt">
+        <label><input type="checkbox" data-key="soundEnabled"> Sound at zero</label>
+        <button data-cmd="testsound">Test sound</button>
+        <input class="wide" type="text" data-key="soundFile" placeholder="Built-in beep, or a .wav path on the PowerPoint PC" aria-label="Sound file">
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Look</h2>
+    <div class="opts">
+      <div class="opt"><label><input type="checkbox" data-key="transparentBackground"> Transparent background</label></div>
+      <div class="opt"><label><input type="checkbox" data-key="textOutline"> Dark outline around digits</label></div>
+      <div class="opt">
+        <label style="flex:0 0 auto;min-width:0">Opacity</label>
+        <input type="range" min="20" max="100" step="5" data-key="opacity" data-kind="percent" aria-label="Opacity">
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+  const token = new URLSearchParams(location.search).get('token') || '';
+  const withToken = (url) => url + (token ? (url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token) : '');
+  const $ = (id) => document.getElementById(id);
+  const timeEl = $('time'), statusEl = $('status'), errorEl = $('error');
+  const stage = $('stage'), box = $('box'), boxText = $('boxText');
+  const DEFAULT_POS = { xPercent: 22, yPercent: 74, widthPercent: 16, heightPercent: 9 };
+
+  let ws, state = null, settings = null, dragging = false;
+
+  // ---- connection -------------------------------------------------------------------------
+
+  function connect() {
+    const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(withToken(scheme + '://' + location.host + '/ws'));
+    ws.onmessage = (e) => {
+      const m = JSON.parse(e.data);
+      if (m.type === 'state') onState(m);
+      else if (m.type === 'hello' || m.type === 'settings') onSettings(m.settings);
+      else if (m.type === 'result' && !m.ok) showError(m.error);
+    };
+    ws.onclose = () => { statusEl.textContent = 'disconnected, retrying…'; setTimeout(connect, 1000); };
+  }
+
+  function send(msg) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg)); }
+  function sendSettings(values) { send(Object.assign({ cmd: 'settings' }, values)); }
+
+  function showError(text) {
+    errorEl.textContent = text;
+    clearTimeout(showError.t);
+    showError.t = setTimeout(() => { errorEl.textContent = ''; }, 5000);
+  }
+
+  // ---- state ------------------------------------------------------------------------------
+
+  function onState(m) {
+    state = m;
+    timeEl.textContent = m.display;
+    const blinking = m.phase === 'expired' && settings && settings.blinkAtZero && m.running;
+    timeEl.className = m.phase + (m.running ? '' : ' paused') + (blinking ? ' blink' : '');
+    statusEl.textContent = (m.running ? 'running' : 'paused') + ' · of ' + m.duration +
+      ' · overlay ' + (m.visible ? 'on' : 'off') +
+      ' · presenter view ' + (m.presenterView ? 'detected' : 'not detected');
+
+    if (m.presenterWidth > 0 && m.presenterHeight > 0) stage.style.aspectRatio = m.presenterWidth + ' / ' + m.presenterHeight;
+    renderBox();
+  }
+
+  function onSettings(s) {
+    settings = s;
+    fillForm();
+    renderBox();
+  }
+
+  // ---- position editor --------------------------------------------------------------------
+
+  function currentPos() {
+    return settings
+      ? { xPercent: settings.xPercent, yPercent: settings.yPercent, widthPercent: settings.widthPercent, heightPercent: settings.heightPercent }
+      : DEFAULT_POS;
+  }
+
+  function renderBox(pos) {
+    const p = pos || currentPos();
+    box.style.left = p.xPercent + '%';
+    box.style.top = p.yPercent + '%';
+    box.style.width = p.widthPercent + '%';
+    box.style.height = p.heightPercent + '%';
+    $('posReadout').textContent = 'x ' + p.xPercent.toFixed(1) + '%  y ' + p.yPercent.toFixed(1) +
+      '%  w ' + p.widthPercent.toFixed(1) + '%  h ' + p.heightPercent.toFixed(1) + '%';
+
+    const text = state ? state.display : '05:00';
+    boxText.textContent = text;
+    const w = box.clientWidth, h = box.clientHeight;
+    boxText.style.fontSize = Math.max(6, Math.min(h * 0.72, w / (text.length * 0.6))) + 'px';
+
+    const classes = [];
+    if (state) classes.push(state.phase);
+    if (settings && !settings.transparentBackground) classes.push('solid');
+    if (settings && settings.textOutline) classes.push('outline');
+    box.className = classes.join(' ');
+  }
+
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const round1 = (v) => Math.round(v * 10) / 10;
+
+  let pending = null, sendTimer = null;
+  function queuePos(pos) {
+    pending = pos;
+    if (sendTimer) return;
+    sendTimer = setTimeout(() => {
+      sendTimer = null;
+      if (pending) sendSettings(pending);
+      pending = null;
+    }, 120);
+  }
+
+  box.addEventListener('pointerdown', (e) => {
+    if (!settings) return;
+    e.preventDefault();
+    const resizing = e.target.classList.contains('handle');
+    const rect = stage.getBoundingClientRect();
+    const start = Object.assign({ px: e.clientX, py: e.clientY }, currentPos());
+    let pos = currentPos();
+    dragging = true;
+    box.setPointerCapture(e.pointerId);
+
+    const onMove = (ev) => {
+      const dx = (ev.clientX - start.px) / rect.width * 100;
+      const dy = (ev.clientY - start.py) / rect.height * 100;
+      if (resizing) {
+        pos = Object.assign({}, pos, {
+          widthPercent: round1(clamp(start.widthPercent + dx, 3, 100 - start.xPercent)),
+          heightPercent: round1(clamp(start.heightPercent + dy, 2, 100 - start.yPercent)),
+        });
+      } else {
+        pos = Object.assign({}, pos, {
+          xPercent: round1(clamp(start.xPercent + dx, 0, 100 - start.widthPercent)),
+          yPercent: round1(clamp(start.yPercent + dy, 0, 100 - start.heightPercent)),
+        });
+      }
+      renderBox(pos);
+      queuePos(pos);
+    };
+    const onUp = () => {
+      box.removeEventListener('pointermove', onMove);
+      box.removeEventListener('pointerup', onUp);
+      box.removeEventListener('pointercancel', onUp);
+      dragging = false;
+      clearTimeout(sendTimer);
+      sendTimer = null;
+      pending = null;
+      Object.assign(settings, pos);
+      sendSettings(pos);
+    };
+    box.addEventListener('pointermove', onMove);
+    box.addEventListener('pointerup', onUp);
+    box.addEventListener('pointercancel', onUp);
+  });
+
+  new ResizeObserver(() => { if (!dragging) renderBox(); }).observe(stage);
+
+  $('resetPosButton').addEventListener('click', () => sendSettings(DEFAULT_POS));
+
+  // ---- settings form ----------------------------------------------------------------------
+
+  function formatTime(seconds) {
+    const m = Math.floor(seconds / 60), s = seconds % 60;
+    return m + ':' + String(s).padStart(2, '0');
+  }
+
+  function parseTime(text) {
+    const parts = String(text).trim().split(':').map(Number);
+    if (!parts.length || parts.some((p) => !isFinite(p) || p < 0)) return null;
+    return Math.round(parts.reduce((total, p) => total * 60 + p, 0));
+  }
+
+  const fields = Array.from(document.querySelectorAll('[data-key]'));
+
+  function fillForm() {
+    if (!settings) return;
+    for (const el of fields) {
+      const key = el.dataset.key;
+      if (document.activeElement !== el) {
+        if (el.type === 'checkbox') el.checked = !!settings[key];
+        else if (el.dataset.kind === 'time') el.value = formatTime(settings[key]);
+        else if (el.dataset.kind === 'percent') el.value = Math.round(settings[key] * 100);
+        else el.value = settings[key] ?? '';
+      }
+      if (el.dataset.enabledBy) el.disabled = !settings[el.dataset.enabledBy];
+    }
+  }
+
+  for (const el of fields) {
+    el.addEventListener('change', () => {
+      const key = el.dataset.key;
+      let value;
+      if (el.type === 'checkbox') value = el.checked;
+      else if (el.dataset.kind === 'time') {
+        value = parseTime(el.value);
+        if (value === null) { showError('Use m:ss, e.g. 3:00'); fillForm(); return; }
+      } else if (el.dataset.kind === 'percent') value = Number(el.value) / 100;
+      else value = el.value;
+      sendSettings({ [key]: value });
+    });
+  }
+
+  // ---- buttons ----------------------------------------------------------------------------
+
+  document.querySelectorAll('[data-cmd]').forEach((b) => b.addEventListener('click', () => {
+    const msg = { cmd: b.dataset.cmd };
+    if (b.dataset.seconds) msg.seconds = Number(b.dataset.seconds);
+    send(msg);
+  }));
+  $('setButton').addEventListener('click', () => send({ cmd: 'set', time: $('timeInput').value }));
+
+  renderBox();
+  connect();
+</script>
+</body>
+</html>

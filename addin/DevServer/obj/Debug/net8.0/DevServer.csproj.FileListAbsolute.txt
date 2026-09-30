@@ -1,0 +1,14 @@
+/Users/marcin/CascadeProjects/PPtimer/addin/DevServer/bin/Debug/net8.0/DevServer
+/Users/marcin/CascadeProjects/PPtimer/addin/DevServer/bin/Debug/net8.0/DevServer.deps.json
+/Users/marcin/CascadeProjects/PPtimer/addin/DevServer/bin/Debug/net8.0/DevServer.runtimeconfig.json
+/Users/marcin/CascadeProjects/PPtimer/addin/DevServer/bin/Debug/net8.0/DevServer.dll
+/Users/marcin/CascadeProjects/PPtimer/addin/DevServer/bin/Debug/net8.0/DevServer.pdb
+/Users/marcin/CascadeProjects/PPtimer/addin/DevServer/obj/Debug/net8.0/DevServer.GeneratedMSBuildEditorConfig.editorconfig
+/Users/marcin/CascadeProjects/PPtimer/addin/DevServer/obj/Debug/net8.0/DevServer.AssemblyInfoInputs.cache
+/Users/marcin/CascadeProjects/PPtimer/addin/DevServer/obj/Debug/net8.0/DevServer.AssemblyInfo.cs
+/Users/marcin/CascadeProjects/PPtimer/addin/DevServer/obj/Debug/net8.0/DevServer.csproj.CoreCompileInputs.cache
+/Users/marcin/CascadeProjects/PPtimer/addin/DevServer/obj/Debug/net8.0/DevServer.dll
+/Users/marcin/CascadeProjects/PPtimer/addin/DevServer/obj/Debug/net8.0/refint/DevServer.dll
+/Users/marcin/CascadeProjects/PPtimer/addin/DevServer/obj/Debug/net8.0/DevServer.pdb
+/Users/marcin/CascadeProjects/PPtimer/addin/DevServer/obj/Debug/net8.0/DevServer.genruntimeconfig.cache
+/Users/marcin/CascadeProjects/PPtimer/addin/DevServer/obj/Debug/net8.0/ref/DevServer.dll

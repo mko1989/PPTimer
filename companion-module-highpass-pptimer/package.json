@@ -1,0 +1,24 @@
+{
+	"name": "companion-module-highpass-pptimer",
+	"version": "1.0.0",
+	"type": "module",
+	"main": "src/main.js",
+	"scripts": {
+		"format": "prettier -w .",
+		"package": "companion-module-build"
+	},
+	"license": "MIT",
+	"engines": {
+		"node": "^22.20",
+		"yarn": "^4"
+	},
+	"dependencies": {
+		"@companion-module/base": "~2.0.4"
+	},
+	"devDependencies": {
+		"@companion-module/tools": "^3.1.0",
+		"prettier": "^3.8.3"
+	},
+	"prettier": "@companion-module/tools/.prettierrc.json",
+	"packageManager": "yarn@4.17.0"
+}

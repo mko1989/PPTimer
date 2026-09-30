@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Runs the add-in's timer + HTTP/WebSocket API on macOS, so Companion work doesn't need Windows. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RollForward>Major</RollForward>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../PPTimer/Core/**/*.cs" LinkBase="Core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="../PPTimer/Core/remote.html" LogicalName="PPTimer.remote.html" />
+  </ItemGroup>
+
+</Project>

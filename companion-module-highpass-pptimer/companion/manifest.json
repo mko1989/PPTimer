@@ -1,0 +1,28 @@
+{
+	"$schema": "../node_modules/@companion-module/base/assets/manifest.schema.json",
+	"type": "connection",
+	"id": "pptimer",
+	"name": "pptimer",
+	"shortname": "pptimer",
+	"description": "Control countdown timer overlay on the PowerPoint presenter view (PPTimer add-in)",
+	"version": "0.0.0",
+	"license": "MIT",
+	"repository": "git+https://github.com/bitfocus/companion-module-highpass-pptimer.git",
+	"bugs": "https://github.com/bitfocus/companion-module-highpass-pptimer/issues",
+	"maintainers": [
+		{
+			"name": "Marcin Wardecki",
+			"email": "m.wardecki89@gmail.com"
+		}
+	],
+	"runtime": {
+		"type": "node22",
+		"api": "nodejs-ipc",
+		"apiVersion": "0.0.0",
+		"entrypoint": "../src/main.js"
+	},
+	"legacyIds": [],
+	"manufacturer": "Highpass",
+	"products": ["PowerPoint Presenter View Timer"],
+	"keywords": ["powerpoint", "timer", "countdown", "presenter", "highpass"]
+}

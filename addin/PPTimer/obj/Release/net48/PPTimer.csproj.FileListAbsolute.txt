@@ -1,0 +1,8 @@
+/Users/marcin/CascadeProjects/PPtimer/addin/PPTimer/bin/Release/net48/PPTimer.dll
+/Users/marcin/CascadeProjects/PPtimer/addin/PPTimer/bin/Release/net48/PPTimer.pdb
+/Users/marcin/CascadeProjects/PPtimer/addin/PPTimer/obj/Release/net48/PPTimer.GeneratedMSBuildEditorConfig.editorconfig
+/Users/marcin/CascadeProjects/PPtimer/addin/PPTimer/obj/Release/net48/PPTimer.AssemblyInfoInputs.cache
+/Users/marcin/CascadeProjects/PPtimer/addin/PPTimer/obj/Release/net48/PPTimer.AssemblyInfo.cs
+/Users/marcin/CascadeProjects/PPtimer/addin/PPTimer/obj/Release/net48/PPTimer.csproj.CoreCompileInputs.cache
+/Users/marcin/CascadeProjects/PPtimer/addin/PPTimer/obj/Release/net48/PPTimer.dll
+/Users/marcin/CascadeProjects/PPtimer/addin/PPTimer/obj/Release/net48/PPTimer.pdb
