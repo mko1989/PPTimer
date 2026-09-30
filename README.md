@@ -47,6 +47,23 @@ has the same capabilities.
 - **At zero.** Optionally blinks (a smooth 2 s fade), then counts up (`00:15`, or `-00:15` with `showMinus`), or
   stops at `00:00` if `countUp` is off. The colour at zero is red, or amber if red is off.
 
+
+## Install / update (Windows)
+
+1. Download and unzip `/PPTimer-win.zip` from releases to the laptop.
+2. Close PowerPoint, then double-click **`install.cmd`**. No admin needed.
+3. Once only, double-click **`setup-network.cmd`**. It asks for admin and adds the URL
+   reservation and a firewall rule for TCP 9595. Without it the API only answers on `localhost`.
+4. Start PowerPoint. Check **File → Options → Add-ins → Manage: COM Add-ins → Go…**: PPTimer
+   should be listed and ticked.
+
+Files live in `%LOCALAPPDATA%\PPTimer\`: `bin\`, `config.json` and `pptimer.log`.
+
+
+## Companion module
+
+Get the Companion module from releases `pptimer-1.0.0.tgz` and add it to Companion via Modules -> Import module package.
+
 ## Build (Mac)
 
 ```sh
@@ -55,16 +72,6 @@ brew install --cask dotnet-sdk        # once
 ./build.sh dev                         # dev server + browser remote on http://localhost:9595/
 ```
 
-## Install / update (Windows)
-
-1. Copy `dist/PPTimer-win` to the laptop, via a network share, USB or the zip.
-2. Close PowerPoint, then double-click **`install.cmd`**. No admin needed. Re-run it after every build.
-3. Once only, double-click **`setup-network.cmd`**. It asks for admin and adds the URL
-   reservation and a firewall rule for TCP 9595. Without it the API only answers on `localhost`.
-4. Start PowerPoint. Check **File → Options → Add-ins → Manage: COM Add-ins → Go…**: PPTimer
-   should be listed and ticked.
-
-Files live in `%LOCALAPPDATA%\PPTimer\`: `bin\`, `config.json` and `pptimer.log`.
 
 ## API
 
@@ -126,17 +133,6 @@ curl -d '{"xPercent":30,"yPercent":75,"soundEnabled":true}' http://PC:9595/api/s
 
 "No" means restart PowerPoint after editing the file.
 
-## Companion module (dev)
-
-```sh
-cd companion-modules/companion-module-pptimer
-corepack yarn install
-```
-
-In the Companion launcher's settings, set **Developer modules path** to
-`…/PPtimer/companion-modules`. Then add a connection of type *pptimer* with the PC's IP and
-port 9595. Presets are under *Timer control*, *Adjust time*, *Features on / off* and *Set duration*. For
-development without Windows, point it at `localhost` with `./build.sh dev` running.
 
 ## Troubleshooting
 
