@@ -17,7 +17,7 @@ Companion ──WebSocket──►  PPTimer add-in (inside POWERPNT.EXE)
 | `addin/PPTimer/Windows/` | COM add-in entry point, presenter view detection, overlay window. |
 | `addin/DevServer/` | Runs `Core` on macOS so you can work on Companion without Windows. |
 | `addin/scripts/` | `install` / `uninstall` / `setup-network` (.cmd wrappers + .ps1). |
-| `companion-modules/companion-module-pptimer/` | Companion module (base 2.x, needs Companion 4.3+). |
+| `companion-module-highpass-pptimer/` | Companion module (base 2.x, needs Companion 4.3+). |
 | `build.sh` | Builds the add-in and produces `dist/PPTimer-win/` + `.zip`. |
 
 ### Why a COM add-in rather than a VSTO project
