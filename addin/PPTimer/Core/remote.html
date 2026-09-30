@@ -64,6 +64,7 @@
   .opt .note { color: var(--muted); font-size: 13px; }
   .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
   [disabled] { opacity: .45; }
+  #displayLink { color: var(--muted); font-size: 14px; }
   #error { color: var(--red); text-align: center; min-height: 1.2em; font-size: 14px; }
 </style>
 </head>
@@ -96,6 +97,7 @@
       <button data-cmd="togglevisible">Show / Hide overlay</button>
     </div>
     <div id="error"></div>
+    <div class="row"><a id="displayLink" href="/display" target="_blank">Open display-only page &rarr;</a></div>
   </section>
 
   <section class="card">
@@ -341,6 +343,7 @@
   }));
   $('setButton').addEventListener('click', () => send({ cmd: 'set', time: $('timeInput').value }));
 
+  if (token) $('displayLink').href = withToken('/display');
   renderBox();
   connect();
 </script>

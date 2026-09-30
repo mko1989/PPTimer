@@ -15,7 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="../PPTimer/Core/remote.html" LogicalName="PPTimer.remote.html" />
+    <EmbeddedResource Include="../PPTimer/Core/*.html" LogicalName="PPTimer.%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>

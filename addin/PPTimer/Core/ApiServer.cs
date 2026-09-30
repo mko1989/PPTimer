@@ -13,7 +13,8 @@ namespace PPTimer.Core
 {
     /// <summary>
     /// One HttpListener serving:
-    ///   GET  /                  browser remote (for testing)
+    ///   GET  /                  browser remote
+    ///   GET  /display           timer only, black background (stage / confidence monitor)
     ///   GET  /api/state         current state
     ///   GET|POST /api/{cmd}     commands (args via query string, JSON body or form body)
     ///   GET|POST /api/settings  read / change runtime settings
@@ -151,7 +152,13 @@ namespace PPTimer.Core
 
                 if (path == "/" || path == "/index.html")
                 {
-                    WriteText(res, 200, RemotePage.Html, "text/html; charset=utf-8");
+                    WriteText(res, 200, WebPages.Remote, "text/html; charset=utf-8");
+                    return;
+                }
+
+                if (path == "/display")
+                {
+                    WriteText(res, 200, WebPages.Display, "text/html; charset=utf-8");
                     return;
                 }
 

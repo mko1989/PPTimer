@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>PPTimer</title>
+<style>
+  :root { color-scheme: dark; --amber: #ffb000; --red: #eb2d2d; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; cursor: default;
+         font-family: system-ui, "Segoe UI", sans-serif; }
+  body.idle { cursor: none; }
+
+  #time { color: #fff; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1;
+          white-space: nowrap; user-select: none; transition: color .3s, opacity .3s; }
+  #time.warning { color: var(--amber); }
+  #time.critical, #time.expired { color: var(--red); }
+  #time.paused { opacity: .55; }
+  #time.offline { color: #333; }
+  /* Same curve as the overlay: 2 s fade down to ~12 % and back. */
+  #time.blink { animation: blink 2s ease-in-out infinite; }
+  @keyframes blink { 50% { opacity: .12; } }
+
+  #fullscreen { position: fixed; left: max(16px, env(safe-area-inset-left)); bottom: max(16px, env(safe-area-inset-bottom));
+                width: 44px; height: 44px; padding: 10px; border: 0; border-radius: 8px; cursor: pointer;
+                background: rgba(255, 255, 255, .08); color: #aaa; transition: opacity .6s; }
+  #fullscreen:hover { background: rgba(255, 255, 255, .16); color: #fff; }
+  #fullscreen svg { width: 100%; height: 100%; display: block; }
+  body.idle #fullscreen { opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="time" class="offline">--:--</div>
+<button id="fullscreen" title="Fullscreen" aria-label="Toggle fullscreen" hidden>
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path id="fsIcon" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>
+  </svg>
+</button>
+<script>
+  const token = new URLSearchParams(location.search).get('token') || '';
+  const timeEl = document.getElementById('time');
+  const fsButton = document.getElementById('fullscreen');
+  let blinkAtZero = true, lastLength = 0;
+
+  // ---- timer --------------------------------------------------------------------------------
+
+  function fit() {
+    // Largest size where the text fits 92 % of the width and 80 % of the height.
+    const len = Math.max(timeEl.textContent.length, 5);
+    const size = Math.min(window.innerWidth * 0.92 / (len * 0.6), window.innerHeight * 0.8);
+    timeEl.style.fontSize = size + 'px';
+  }
+
+  function connect() {
+    const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(scheme + '://' + location.host + '/ws' + (token ? '?token=' + encodeURIComponent(token) : ''));
+    ws.onmessage = (e) => {
+      const m = JSON.parse(e.data);
+      if (m.type === 'hello' || m.type === 'settings') blinkAtZero = !!m.settings.blinkAtZero;
+      if (m.type !== 'state') return;
+      timeEl.textContent = m.display;
+      const blinking = m.phase === 'expired' && m.running && blinkAtZero;
+      const cls = m.phase + (m.running ? '' : ' paused') + (blinking ? ' blink' : '');
+      if (timeEl.className !== cls) timeEl.className = cls;
+      if (m.display.length !== lastLength) { lastLength = m.display.length; fit(); }
+    };
+    ws.onclose = () => {
+      timeEl.className = 'offline';
+      setTimeout(connect, 1000);
+    };
+  }
+
+  window.addEventListener('resize', fit);
+  fit();
+  connect();
+
+  // ---- fullscreen ---------------------------------------------------------------------------
+
+  const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement;
+  const canFullscreen = document.fullscreenEnabled || document.webkitFullscreenEnabled;
+
+  if (canFullscreen) {
+    fsButton.hidden = false;
+    fsButton.addEventListener('click', () => {
+      if (fsElement()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      else {
+        const root = document.documentElement;
+        (root.requestFullscreen || root.webkitRequestFullscreen).call(root);
+      }
+    });
+    const updateIcon = () => document.getElementById('fsIcon').setAttribute('d', fsElement()
+      ? 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5'
+      : 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5');
+    document.addEventListener('fullscreenchange', updateIcon);
+    document.addEventListener('webkitfullscreenchange', updateIcon);
+  }
+
+  // Hide the button and cursor after 3 s without movement; any move or tap brings them back.
+  let idleTimer;
+  function wake() {
+    document.body.classList.remove('idle');
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => document.body.classList.add('idle'), 3000);
+  }
+  ['mousemove', 'pointerdown', 'keydown', 'touchstart'].forEach((e) => document.addEventListener(e, wake, { passive: true }));
+  wake();
+</script>
+</body>
+</html>
