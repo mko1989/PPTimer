@@ -46,7 +46,11 @@ has the same capabilities.
   are only commands, so a dropped message never makes the timer drift.
 - **At zero.** Optionally blinks (a smooth 2 s fade), then counts up (`00:15`, or `-00:15` with `showMinus`), or
   stops at `00:00` if `countUp` is off. The colour at zero is red, or amber if red is off.
+  
+<img width="1642" height="849" alt="PPTimer_webui" src="https://github.com/user-attachments/assets/83436123-aac4-4206-8352-650036531c77" />
 
+
+<img width="1922" height="1077" alt="slide" src="https://github.com/user-attachments/assets/8111752a-1549-42b6-9cc2-d7d683b5eff7" />
 
 ## Install / update (Windows)
 
