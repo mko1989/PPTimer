@@ -40,6 +40,8 @@ namespace PPTimer.Core
 
         // Presenter view detection (file-only)
         public string[] PresenterWindowClasses { get; private set; } = { "PodiumParent" };
+        /// <summary>Title fragments of the presenter view window (localised PowerPoint: add e.g. "Referentenansicht").</summary>
+        public string[] PresenterWindowTitles { get; private set; } = { "Presenter View" };
         public bool ClickThrough { get; private set; } = true;
 
         // Overlay rectangle, in % of the presenter view's client area (top-left corner + size)
@@ -77,6 +79,7 @@ namespace PPTimer.Core
                 ["configVersion"] = ConfigVersion,
                 ["port"] = Port,
                 ["presenterWindowClasses"] = PresenterWindowClasses,
+                ["presenterWindowTitles"] = PresenterWindowTitles,
                 ["clickThrough"] = ClickThrough,
                 ["xPercent"] = XPercent,
                 ["yPercent"] = YPercent,
@@ -110,12 +113,8 @@ namespace PPTimer.Core
                     case "configversion": ConfigVersion = (int)Range(ToDouble(value), 0, 1000); return null;
                     case "port": Port = (int)Range(ToDouble(value), 1, 65535); return null;
                     case "apitoken": ApiToken = ToText(value); return null;
-                    case "presenterwindowclasses":
-                        var classes = value is IEnumerable e && !(value is string)
-                            ? e.Cast<object>().Select(o => Convert.ToString(o, CultureInfo.InvariantCulture))
-                            : ToText(value).Split(',');
-                        PresenterWindowClasses = classes.Select(c => c.Trim()).Where(c => c.Length > 0).ToArray();
-                        return null;
+                    case "presenterwindowclasses": PresenterWindowClasses = ToList(value); return null;
+                    case "presenterwindowtitles": PresenterWindowTitles = ToList(value); return null;
                     case "clickthrough": ClickThrough = ToBool(value); return null;
                     case "xpercent": XPercent = Range(ToDouble(value), 0, 100); return null;
                     case "ypercent": YPercent = Range(ToDouble(value), 0, 100); return null;
@@ -152,6 +151,17 @@ namespace PPTimer.Core
         {
             if (double.IsNaN(v) || v < min || v > max) throw new ArgumentException($"must be between {min} and {max}");
             return v;
+        }
+
+        /// <summary>A JSON array of strings, or one comma-separated string.</summary>
+        static string[] ToList(object value)
+        {
+            var items = value is IEnumerable e && !(value is string)
+                ? e.Cast<object>().Select(o => o is IEnumerable && !(o is string)
+                    ? throw new FormatException("expected a flat list like [\"A\", \"B\"], not nested lists")
+                    : Convert.ToString(o, CultureInfo.InvariantCulture))
+                : ToText(value).Split(',');
+            return items.Select(c => c.Trim()).Where(c => c.Length > 0).ToArray();
         }
 
         static string ToText(object v) => Convert.ToString(v, CultureInfo.InvariantCulture) ?? "";
@@ -220,7 +230,12 @@ namespace PPTimer.Core
             }
             catch (Exception ex)
             {
-                Log.Error($"Could not read {path}, using defaults", ex);
+                // Keep the broken file: the next settings change would otherwise overwrite the user's edits.
+                var backup = Path.Combine(Path.GetDirectoryName(path), "config.invalid.json");
+                try { File.Copy(path, backup, true); }
+                catch { backup = null; }
+                Log.Error($"Could not read {path}: {ex.Message}. Using defaults for everything" +
+                          (backup != null ? $"; the file was copied to {backup}" : ""));
             }
         }
 

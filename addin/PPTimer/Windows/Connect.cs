@@ -22,7 +22,7 @@ namespace PPTimer.Windows
             try
             {
                 host = new AddinHost();
-                host.Start();
+                host.Start(application);
             }
             catch (Exception ex)
             {

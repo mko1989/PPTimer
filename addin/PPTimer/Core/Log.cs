@@ -25,6 +25,26 @@ namespace PPTimer.Core
         public static void Error(string message, Exception ex = null) =>
             Write("ERROR", ex == null ? message : message + ": " + ex);
 
+        /// <summary>The last <paramref name="maxBytes"/> of the log (previous file first if the current one is shorter).</summary>
+        public static string Tail(int maxBytes)
+        {
+            if (path == null) return "(no log file)";
+            lock (Gate)
+            {
+                try
+                {
+                    var text = File.Exists(path) ? File.ReadAllText(path) : "";
+                    if (text.Length < maxBytes && File.Exists(path + ".1"))
+                        text = File.ReadAllText(path + ".1") + text;
+                    return text.Length <= maxBytes ? text : text.Substring(text.Length - maxBytes);
+                }
+                catch (Exception ex)
+                {
+                    return $"(could not read {path}: {ex.Message})";
+                }
+            }
+        }
+
         static void Write(string level, string message)
         {
             var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{level}] {message}";

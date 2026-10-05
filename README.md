@@ -17,7 +17,7 @@ Companion ──WebSocket──►  PPTimer add-in (inside POWERPNT.EXE)
 | `addin/PPTimer/Core/` | Timer, settings, JSON, HTTP + WebSocket server. Platform-neutral. |
 | `addin/PPTimer/Windows/` | COM add-in entry point, presenter view detection, overlay window. |
 | `addin/DevServer/` | Runs `Core` on macOS so you can work on Companion without Windows. |
-| `addin/scripts/` | `install` / `uninstall` / `setup-network` (.cmd wrappers + .ps1). |
+| `addin/scripts/` | `install` / `uninstall` (.cmd wrappers + .ps1). |
 | `mac/` | Mac menu bar app (Swift). Same API and web pages; see [Mac version](#mac-version). |
 | `companion-modules/companion-module-pptimer/` | Companion module (base 2.x, needs Companion 4.3+). |
 | `build.sh` | Builds the add-in and produces `dist/PPTimer-win/` + `.zip`. |
@@ -31,9 +31,16 @@ has the same capabilities.
 
 ## How it works
 
-- **Finding the presenter view.** Every 100 ms (on PowerPoint's UI thread) it looks for a
-  visible top-level window of class `PodiumParent` in the PowerPoint process. This also
-  covers Alt+F5, "Swap displays" and moved or resized windows.
+- **Finding the presenter view.** Every 400 ms (on PowerPoint's UI thread) it looks through the
+  PowerPoint process's windows and takes the first match of:
+  1. a visible top-level window whose class is in `presenterWindowClasses` (default `PodiumParent`),
+  2. a visible *child* window with such a class (in case a PowerPoint build nests it),
+  3. a visible window whose title contains one of `presenterWindowTitles` (default `Presenter View`),
+  4. during a slide show, the one other `screenClass` window besides the audience window.
+
+  The audience window comes from PowerPoint's object model (`SlideShowWindow.HWND`) and is never
+  used, whatever the config says. While attached it re-checks every 2 s. This also covers Alt+F5,
+  "Swap displays" and moved or resized windows.
 - **Drawing the overlay.** A borderless window whose *owner* is the presenter view, so it
   always sits above it and nothing else. It is painted with per-pixel alpha
   (`UpdateLayeredWindow`), so the background can be fully transparent: only the digits, with an
@@ -62,10 +69,12 @@ brew install --cask dotnet-sdk        # once
 ## Install / update (Windows)
 
 1. Copy `dist/PPTimer-win` to the laptop, via a network share, USB or the zip.
-2. Close PowerPoint, then double-click **`install.cmd`**. No admin needed. Re-run it after every build.
-3. Once only, double-click **`setup-network.cmd`**. It asks for admin and adds the URL
-   reservation and a firewall rule for TCP 9595. Without it the API only answers on `localhost`.
-4. Start PowerPoint. Check **File → Options → Add-ins → Manage: COM Add-ins → Go…**: PPTimer
+2. Close PowerPoint, then double-click **`install.cmd`**. Re-run it after every build. It installs the
+   add-in for the current user, then checks network access. The first time, Windows asks for admin
+   permission so it can add the URL reservation and a firewall rule for TCP 9595. Later updates skip
+   that step. If you decline, the API only answers on `localhost`; run `install.cmd` again to retry.
+   `uninstall.cmd` removes both the add-in and the network access.
+3. Start PowerPoint. Check **File → Options → Add-ins → Manage: COM Add-ins → Go…**: PPTimer
    should be listed and ticked.
 
 Files live in `%LOCALAPPDATA%\PPTimer\`: `bin\`, `config.json` and `pptimer.log`.
@@ -88,7 +97,11 @@ body or a form body. Over WebSocket (`/ws`), send `{"cmd": "<cmd>", ...args, "id
 | `testsound` | | plays the zero sound once |
 | `state` | | `GET /api/state` |
 
-`GET /api/debug/windows` lists PowerPoint's top-level windows, for checking the presenter view class name.
+Diagnostics (same token rules as the API):
+- `GET /api/debug/windows`: PowerPoint's windows (class, title, rect, monitor, child classes), running slide shows
+  with their audience window and "Use Presenter View" setting, monitors, and which window the overlay is attached to and why.
+- `GET /api/debug/log` (Windows): the last 200 KB of `pptimer.log` as text (`?kb=1000` for more). Ask whoever reports a
+  problem to open `http://PC-IP:9595/api/debug/log` and save the page, rather than photographing the screen.
 
 WebSocket pushes:
 - `{"type":"hello",...}` on connect.
@@ -117,9 +130,10 @@ curl -d '{"xPercent":30,"yPercent":75,"soundEnabled":true}' http://PC:9595/api/s
 
 | Key | Default | Runtime? | |
 | --- | --- | --- | --- |
-| `port` | 9595 | no | re-run `setup-network.cmd` after changing |
+| `port` | 9595 | no | re-run `install.cmd` after changing |
 | `apiToken` | "" | no | if set: `X-Api-Token` header or `?token=` |
-| `presenterWindowClasses` | `["PodiumParent"]` | no | window class(es) to attach to |
+| `presenterWindowClasses` | `["PodiumParent"]` | no | window class(es) to attach to, strongest first. Don't add `PPTFrameClass` (editing window) or `screenClass` (slide show) |
+| `presenterWindowTitles` | `["Presenter View"]` | no | title fragments that identify the presenter view; add the translation for a localised PowerPoint |
 | `clickThrough` | true | no | overlay ignores the mouse |
 | `xPercent` / `yPercent` | 22 / 74 | yes | overlay top-left corner, % of the presenter view |
 | `widthPercent` / `heightPercent` | 16 / 9 | yes | overlay size; the digits are fitted inside |
@@ -193,8 +207,17 @@ Keynote/PowerPoint windows with their levels, which is useful if a new Keynote v
 - **Add-in not listed or not loading.** Check `pptimer.log`. If there's no log at all, the
   DLL never loaded: re-run `install.cmd`, and look under COM Add-ins and
   *Disabled Items* (File → Options → Add-ins → Manage: Disabled Items).
-- **Overlay doesn't appear.** The log prints "PowerPoint visible window classes: …" whenever
-  they change. Start a slide show with presenter view (Alt+F5 on a single screen) and check
-  which class appears. If it isn't `PodiumParent`, put it in `presenterWindowClasses`.
+- **Overlay doesn't appear.** Get the log (`http://PC-IP:9595/api/debug/log`, or `pptimer.log`). It has:
+  - at startup: PPTimer, PowerPoint and Windows versions, the detection settings, the monitors, and warnings for
+    suspicious `presenterWindowClasses`;
+  - "Slide show started: …" with the audience window handle and `usePresenterView` (False means the
+    *Slide Show → Use Presenter View* box is off, so there is nothing to find);
+  - "PowerPoint visible windows changed: …" with one line per window (handle, class, title, position, monitor,
+    `AUDIENCE` for the slide show window) and its child window classes;
+  - "Presenter view found: … via <rule>" and "Overlay shown at …" when it works, or after 3 s of a slide show
+    "WARN Slide show running … but no presenter view found" with a likely cause and a full window dump.
+- **config.json edited by hand and ignored.** The log says "Could not read config.json: … at line L, column C" and
+  copies the file to `config.invalid.json` before anything can overwrite it. Lists are flat:
+  `"presenterWindowClasses": ["PodiumParent", "Other"]`, not `["PodiumParent"],["Other"]`.
 - **Companion can't connect.** Open `http://PC-IP:9595/` in a browser from the Companion
-  machine. If that fails, check the log for "localhost only" and run `setup-network.cmd`.
+  machine. If that fails, check the log for "localhost only" and run `install.cmd` again, accepting the admin prompt.

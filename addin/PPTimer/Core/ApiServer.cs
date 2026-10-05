@@ -18,7 +18,8 @@ namespace PPTimer.Core
     ///   GET  /api/state         current state
     ///   GET|POST /api/{cmd}     commands (args via query string, JSON body or form body)
     ///   GET|POST /api/settings  read / change runtime settings
-    ///   GET  /api/debug/windows PowerPoint's top-level windows (Windows only)
+    ///   GET  /api/debug/windows PowerPoint's windows, slide shows, monitors and the detection result (Windows only)
+    ///   GET  /api/debug/log     the end of pptimer.log as plain text (send this instead of a photo of the screen)
     ///   GET  /ws                WebSocket: send {"cmd": ...}, receive pushed "state" messages
     /// </summary>
     public sealed class ApiServer : IDisposable
@@ -49,7 +50,7 @@ namespace PPTimer.Core
 
         public string ListeningOn { get; private set; }
 
-        /// <summary>False when only localhost could be bound (URL ACL missing, see setup-network.ps1).</summary>
+        /// <summary>False when only localhost could be bound (URL reservation missing: install.ps1 adds it).</summary>
         public bool LanAccess { get; private set; }
 
         public void Start()
@@ -61,7 +62,7 @@ namespace PPTimer.Core
             {
                 listener = TryListen($"http://localhost:{port}/");
                 if (listener != null)
-                    Log.Warn("Listening on localhost only. Run setup-network.ps1 as admin once to allow network control.");
+                    Log.Warn("Listening on localhost only: the URL reservation is missing. Run install.cmd again and accept the admin prompt to allow network control.");
             }
             if (listener == null)
             {
@@ -187,11 +188,19 @@ namespace PPTimer.Core
 
                 if (path == "/api/debug/windows")
                 {
-                    WriteJson(res, 200, new Dictionary<string, object>
-                    {
-                        ["windows"] = diagnostics?.Invoke() ?? "not available on this platform",
-                        ["presenterWindowClasses"] = settings.Current.PresenterWindowClasses,
-                    });
+                    var body = diagnostics?.Invoke() as Dictionary<string, object>
+                               ?? new Dictionary<string, object> { ["windows"] = "not available on this platform" };
+                    body["version"] = Version;
+                    body["presenterWindowClasses"] = settings.Current.PresenterWindowClasses;
+                    body["presenterWindowTitles"] = settings.Current.PresenterWindowTitles;
+                    WriteJson(res, 200, body);
+                    return;
+                }
+
+                if (path == "/api/debug/log")
+                {
+                    var kb = int.TryParse(req.QueryString["kb"], out var k) ? Math.Max(1, Math.Min(k, 2000)) : 200;
+                    WriteText(res, 200, Log.Tail(kb * 1024), "text/plain; charset=utf-8");
                     return;
                 }
 

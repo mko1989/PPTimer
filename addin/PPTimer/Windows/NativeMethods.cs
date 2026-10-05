@@ -37,6 +37,26 @@ namespace PPTimer.Windows
         public static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
 
         [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool EnumChildWindows(IntPtr parent, EnumWindowsProc callback, IntPtr lParam);
+
+        public const uint GW_OWNER = 4;
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetWindow(IntPtr hWnd, uint cmd);
+
+        public const int GWL_STYLE = -16;
+        public const int GWL_EXSTYLE = -20;
+
+        [DllImport("user32.dll")]
+        public static extern int GetWindowLong(IntPtr hWnd, int index);
+
+        public const int DWMWA_CLOAKED = 14;
+
+        [DllImport("dwmapi.dll")]
+        public static extern int DwmGetWindowAttribute(IntPtr hWnd, int attribute, out int value, int size);
+
+        [DllImport("user32.dll")]
         public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]

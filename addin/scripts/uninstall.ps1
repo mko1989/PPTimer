@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
-  Removes the PPTimer add-in registration for the current user.
+  Removes the PPTimer add-in registration for the current user, and the URL reservation and
+  firewall rule that install.ps1 added (asks for admin permission if they exist).
   -RemoveFiles also deletes %LOCALAPPDATA%\PPTimer\bin (config.json and the log are kept).
 #>
 [CmdletBinding()]
@@ -41,4 +42,28 @@ if ($RemoveFiles) {
 }
 
 Write-Host 'PPTimer unregistered.' -ForegroundColor Green
-Write-Host 'Run "setup-network.cmd -Remove" to also remove the URL reservation and firewall rule.'
+
+# Network access (admin part, done by install.ps1 elevated).
+$port = 9595
+$config = Join-Path $env:LOCALAPPDATA 'PPTimer\config.json'
+if (Test-Path $config) {
+    try {
+        $configured = (Get-Content $config -Raw | ConvertFrom-Json).port
+        if ($configured) { $port = [int]$configured }
+    }
+    catch { }
+}
+$reserved = (& netsh http show urlacl url="http://+:$port/" 2>&1 | Out-String) -match [regex]::Escape("http://+:$port/")
+$rule = Get-NetFirewallRule -DisplayName 'PPTimer (TCP *)' -ErrorAction SilentlyContinue
+if ($reserved -or $rule) {
+    $install = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'install.ps1'
+    Write-Host "Removing network access on port $port. Windows will ask for admin permission..."
+    try {
+        $p = Start-Process powershell.exe -Verb RunAs -Wait -PassThru -ArgumentList @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$install`"", '-Network', 'Remove', '-Port', $port)
+        if ($p.ExitCode -eq 0) { Write-Host 'Network access removed.' -ForegroundColor Green }
+    }
+    catch {
+        Write-Warning "Admin permission was not given; the URL reservation and firewall rule for port $port are still there."
+    }
+}

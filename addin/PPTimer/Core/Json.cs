@@ -19,7 +19,7 @@ namespace PPTimer.Core
             parser.SkipWhitespace();
             var value = parser.ReadValue();
             parser.SkipWhitespace();
-            if (!parser.AtEnd) throw new FormatException("Unexpected trailing characters in JSON");
+            if (!parser.AtEnd) throw new FormatException($"Unexpected trailing characters at {parser.Where(parser.Position)}");
             return value;
         }
 
@@ -146,6 +146,20 @@ namespace PPTimer.Core
 
             public bool AtEnd => i >= s.Length;
 
+            public int Position => i;
+
+            /// <summary>"line 3, column 28" (1-based), so a hand-edited config.json error points at the mistake.</summary>
+            public string Where(int pos)
+            {
+                int line = 1, col = 1;
+                for (var k = 0; k < pos && k < s.Length; k++)
+                {
+                    if (s[k] == '\n') { line++; col = 1; }
+                    else col++;
+                }
+                return $"line {line}, column {col}";
+            }
+
             public void SkipWhitespace()
             {
                 while (i < s.Length && char.IsWhiteSpace(s[i])) i++;
@@ -165,7 +179,7 @@ namespace PPTimer.Core
                     case 'n': Expect("null"); return null;
                     default:
                         if (c == '-' || (c >= '0' && c <= '9')) return ReadNumber();
-                        throw new FormatException($"Unexpected character '{c}' at {i}");
+                        throw new FormatException($"Unexpected character '{c}' at {Where(i)}");
                 }
             }
 
@@ -178,10 +192,10 @@ namespace PPTimer.Core
                 while (true)
                 {
                     SkipWhitespace();
-                    if (Peek() != '"') throw new FormatException($"Expected property name at {i}");
+                    if (Peek() != '"') throw new FormatException($"Expected property name (in double quotes) at {Where(i)}");
                     var key = ReadString();
                     SkipWhitespace();
-                    if (Peek() != ':') throw new FormatException($"Expected ':' at {i}");
+                    if (Peek() != ':') throw new FormatException($"Expected ':' at {Where(i)}");
                     i++;
                     SkipWhitespace();
                     result[key] = ReadValue();
@@ -189,7 +203,7 @@ namespace PPTimer.Core
                     var c = Peek();
                     i++;
                     if (c == '}') return result;
-                    if (c != ',') throw new FormatException($"Expected ',' or '}}' at {i - 1}");
+                    if (c != ',') throw new FormatException($"Expected ',' or '}}' at {Where(i - 1)}");
                 }
             }
 
@@ -207,7 +221,7 @@ namespace PPTimer.Core
                     var c = Peek();
                     i++;
                     if (c == ']') return result;
-                    if (c != ',') throw new FormatException($"Expected ',' or ']' at {i - 1}");
+                    if (c != ',') throw new FormatException($"Expected ',' or ']' at {Where(i - 1)}");
                 }
             }
 
@@ -252,7 +266,7 @@ namespace PPTimer.Core
 
             void Expect(string word)
             {
-                if (string.CompareOrdinal(s, i, word, 0, word.Length) != 0) throw new FormatException($"Expected '{word}' at {i}");
+                if (string.CompareOrdinal(s, i, word, 0, word.Length) != 0) throw new FormatException($"Expected '{word}' at {Where(i)}");
                 i += word.Length;
             }
 
