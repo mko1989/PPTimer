@@ -42,7 +42,7 @@ namespace PPTimer.DevServer
             {
                 if (!interactive) continue;
                 var s = timer.Snapshot();
-                Console.Write($"\r  {s.Display,9}  {s.Phase,-8}  {(s.Running ? "running" : "paused "),-7}  overlay {(s.Visible ? "on " : "off")}   ");
+                Console.Write($"\r  {s.Display,9}  {s.Phase,-8}  {(s.Running ? "running" : "paused "),-7}  overlay {(s.Visible ? "on " : "off")}  speed {s.SpeedPercent,5}%   ");
             }
             Console.WriteLine();
             return 0;

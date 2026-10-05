@@ -19,10 +19,12 @@ namespace PPTimer.Core
         public string Phase;
         public bool Overtime;
         public double Progress;
+        /// <summary>How fast the countdown runs, in % of real time (100 = normal).</summary>
+        public double SpeedPercent;
 
         /// <summary>Changes whenever anything a client would display changes.</summary>
         public string ChangeKey =>
-            $"{Display}|{Phase}|{Running}|{Visible}|{PresenterView}|{PresenterWidth}x{PresenterHeight}|{DurationMs}";
+            $"{Display}|{Phase}|{Running}|{Visible}|{PresenterView}|{PresenterWidth}x{PresenterHeight}|{DurationMs}|{SpeedPercent}";
 
         public Dictionary<string, object> ToDictionary() => new Dictionary<string, object>
         {
@@ -39,6 +41,7 @@ namespace PPTimer.Core
             ["phase"] = Phase,
             ["overtime"] = Overtime,
             ["progress"] = Math.Round(Progress, 4),
+            ["speedPercent"] = SpeedPercent,
         };
     }
 
@@ -48,6 +51,9 @@ namespace PPTimer.Core
     /// </summary>
     public sealed class TimerModel
     {
+        public const double MinSpeedPercent = 50;
+        public const double MaxSpeedPercent = 200;
+
         readonly object gate = new object();
         readonly Stopwatch clock = Stopwatch.StartNew();
         readonly SettingsStore settings;
@@ -55,6 +61,7 @@ namespace PPTimer.Core
         long durationMs;
         long remainingAtAnchorMs;
         long anchorMs;
+        double speed = 1; // countdown ms per real ms
         bool running;
         bool visible = true;
         bool presenterView;
@@ -78,7 +85,7 @@ namespace PPTimer.Core
 
         long RemainingLocked()
         {
-            var remaining = running ? remainingAtAnchorMs - (Now - anchorMs) : remainingAtAnchorMs;
+            var remaining = running ? remainingAtAnchorMs - (long)Math.Round((Now - anchorMs) * speed) : remainingAtAnchorMs;
             return !settings.Current.CountUp && remaining < 0 ? 0 : remaining;
         }
 
@@ -117,34 +124,55 @@ namespace PPTimer.Core
             }
         }
 
-        /// <summary>Back to the full duration, paused.</summary>
+        /// <summary>Back to the full duration (and normal speed), paused.</summary>
         public void Reset()
         {
             lock (gate)
             {
                 Rebase(durationMs);
+                speed = 1;
                 running = false;
             }
         }
 
-        /// <summary>Back to the full duration and running.</summary>
+        /// <summary>Back to the full duration (and normal speed) and running.</summary>
         public void Restart()
         {
             lock (gate)
             {
                 Rebase(durationMs);
+                speed = 1;
                 running = true;
             }
         }
 
-        /// <summary>Sets a new duration and remaining time. Keeps the running state unless <paramref name="start"/> is given.</summary>
+        /// <summary>
+        /// Sets a new duration and remaining time, at normal speed: a new segment never inherits a
+        /// speed-up meant for the previous one. Keeps the running state unless <paramref name="start"/> is given.
+        /// </summary>
         public void Set(long ms, bool? start)
         {
             lock (gate)
             {
                 durationMs = ms;
                 Rebase(ms);
+                speed = 1;
                 if (start.HasValue) running = start.Value;
+            }
+        }
+
+        /// <summary>
+        /// Sets how fast the countdown runs, in % of real time (105 = a 10:00 countdown takes 9:31).
+        /// With <paramref name="relative"/>, adds to the current speed. Clamped to 50–200 %, rounded to 0.1 %.
+        /// </summary>
+        public void SetSpeed(double percent, bool relative)
+        {
+            lock (gate)
+            {
+                var target = relative ? Math.Round(speed * 100, 1) + percent : percent;
+                target = Math.Round(Math.Max(MinSpeedPercent, Math.Min(MaxSpeedPercent, target)), 1);
+                Rebase(RemainingLocked()); // the time already run keeps the old speed
+                speed = target / 100;
             }
         }
 
@@ -221,6 +249,7 @@ namespace PPTimer.Core
                     Phase = phase,
                     Overtime = remaining < 0,
                     Progress = durationMs > 0 ? Math.Max(0, Math.Min(1, remaining / (double)durationMs)) : 0,
+                    SpeedPercent = Math.Round(speed * 100, 1),
                 };
             }
 

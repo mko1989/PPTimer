@@ -418,7 +418,7 @@
     "/Users/marcin/.nuget/packages/": {}
   },
   "project": {
-    "version": "0.1.0",
+    "version": "1.0.1",
     "restore": {
       "projectUniqueName": "/Users/marcin/CascadeProjects/PPtimer/addin/PPTimer/PPTimer.csproj",
       "projectName": "PPTimer",

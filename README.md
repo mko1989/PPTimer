@@ -1,7 +1,8 @@
 # PPTimer
 
-Countdown timer drawn on top of PowerPoint's **presenter view** (Windows), controlled over the
-network by Bitfocus Companion. The audience screen never shows it.
+Countdown timer drawn on top of PowerPoint's **presenter view** (Windows), or Keynote's / PowerPoint's
+presenter view on a **Mac** (see [Mac version](#mac-version)), controlled over the network by Bitfocus
+Companion. The audience screen never shows it.
 
 ```
 Companion ──WebSocket──►  PPTimer add-in (inside POWERPNT.EXE)
@@ -17,7 +18,8 @@ Companion ──WebSocket──►  PPTimer add-in (inside POWERPNT.EXE)
 | `addin/PPTimer/Windows/` | COM add-in entry point, presenter view detection, overlay window. |
 | `addin/DevServer/` | Runs `Core` on macOS so you can work on Companion without Windows. |
 | `addin/scripts/` | `install` / `uninstall` / `setup-network` (.cmd wrappers + .ps1). |
-| `companion-module-highpass-pptimer/` | Companion module (base 2.x, needs Companion 4.3+). |
+| `mac/` | Mac menu bar app (Swift). Same API and web pages; see [Mac version](#mac-version). |
+| `companion-modules/companion-module-pptimer/` | Companion module (base 2.x, needs Companion 4.3+). |
 | `build.sh` | Builds the add-in and produces `dist/PPTimer-win/` + `.zip`. |
 
 ### Why a COM add-in rather than a VSTO project
@@ -37,6 +39,8 @@ has the same capabilities.
   (`UpdateLayeredWindow`), so the background can be fully transparent: only the digits, with an
   optional dark outline. It never takes focus, so the clicker and arrow keys still work, and
   clicks pass through it by default.
+- **Display page.** `http://PC:9595/display` shows only the timer on black (same colours and
+  blink as the overlay) with a fullscreen button bottom-left, e.g. for a confidence monitor or tablet.
 - **Position.** Stored as a rectangle in % of the presenter view. Drag it on the web page
   (`http://PC:9595/`), where the presenter view is drawn as a plain box with its real proportions.
 - **Sound.** When a running countdown reaches zero, it plays `soundFile` (a .wav on the PowerPoint
@@ -46,27 +50,6 @@ has the same capabilities.
   are only commands, so a dropped message never makes the timer drift.
 - **At zero.** Optionally blinks (a smooth 2 s fade), then counts up (`00:15`, or `-00:15` with `showMinus`), or
   stops at `00:00` if `countUp` is off. The colour at zero is red, or amber if red is off.
-  
-<img width="1642" height="849" alt="PPTimer_webui" src="https://github.com/user-attachments/assets/83436123-aac4-4206-8352-650036531c77" />
-
-
-<img width="1922" height="1077" alt="slide" src="https://github.com/user-attachments/assets/8111752a-1549-42b6-9cc2-d7d683b5eff7" />
-
-## Install / update (Windows)
-
-1. Download and unzip `/PPTimer-win.zip` from releases to the laptop.
-2. Close PowerPoint, then double-click **`install.cmd`**. No admin needed.
-3. Once only, double-click **`setup-network.cmd`**. It asks for admin and adds the URL
-   reservation and a firewall rule for TCP 9595. Without it the API only answers on `localhost`.
-4. Start PowerPoint. Check **File → Options → Add-ins → Manage: COM Add-ins → Go…**: PPTimer
-   should be listed and ticked.
-
-Files live in `%LOCALAPPDATA%\PPTimer\`: `bin\`, `config.json` and `pptimer.log`.
-
-
-## Companion module
-
-Get the Companion module from releases `pptimer-1.0.0.tgz` and add it to Companion via Modules -> Import module package.
 
 ## Build (Mac)
 
@@ -76,6 +59,16 @@ brew install --cask dotnet-sdk        # once
 ./build.sh dev                         # dev server + browser remote on http://localhost:9595/
 ```
 
+## Install / update (Windows)
+
+1. Copy `dist/PPTimer-win` to the laptop, via a network share, USB or the zip.
+2. Close PowerPoint, then double-click **`install.cmd`**. No admin needed. Re-run it after every build.
+3. Once only, double-click **`setup-network.cmd`**. It asks for admin and adds the URL
+   reservation and a firewall rule for TCP 9595. Without it the API only answers on `localhost`.
+4. Start PowerPoint. Check **File → Options → Add-ins → Manage: COM Add-ins → Go…**: PPTimer
+   should be listed and ticked.
+
+Files live in `%LOCALAPPDATA%\PPTimer\`: `bin\`, `config.json` and `pptimer.log`.
 
 ## API
 
@@ -89,6 +82,7 @@ body or a form body. Over WebSocket (`/ws`), send `{"cmd": "<cmd>", ...args, "id
 | `restart` | | back to duration, running |
 | `set` | `time=5:00` or `seconds=300` or `minutes=5`, optional `start=true/false` | new duration |
 | `add` | `time=-1:00` / `seconds=30` | adds or removes time |
+| `speed` | `percent=105` or `rate=1.05`, or `step=5` / `step=-5` | how fast the countdown runs, 50–200 % of real time (see below) |
 | `show` `hide` `togglevisible` | | overlay visibility |
 | `settings` | any runtime key below | no args returns current settings |
 | `testsound` | | plays the zero sound once |
@@ -98,12 +92,18 @@ body or a form body. Over WebSocket (`/ws`), send `{"cmd": "<cmd>", ...args, "id
 
 WebSocket pushes:
 - `{"type":"hello",...}` on connect.
-- `{"type":"state", display, phase, running, remainingMs, remainingSeconds, durationMs, duration, progress, visible, presenterView, overtime, ...}` on every visible change, plus a heartbeat every 5 s.
+- `{"type":"state", display, phase, running, remainingMs, remainingSeconds, durationMs, duration, progress, visible, presenterView, overtime, speedPercent, ...}` on every visible change, plus a heartbeat every 5 s.
 - `{"type":"result", id, ok, error}` for each command.
 - `{"type":"settings",...}` when settings change.
 - `{"type":"event","event":"zero"}` when a running countdown reaches zero.
 
 `phase` is one of `normal`, `warning`, `critical` or `expired`.
+
+**Speed.** `speed` makes the countdown run faster or slower than real time, so an operator can quietly
+shorten (or stretch) a talk. At 105 %, 10:00 lasts 9:31; at 95 %, 10:31. The time already elapsed is
+kept; only the rest runs at the new speed. The overlay and `/display` show only the time. The speed
+appears on the remote page, in the Mac menu, in `speedPercent` and in Companion. `set`, `reset` and
+`restart` go back to 100 %, so a new segment never inherits the previous one's speed-up.
 
 Note: a bare `curl -X POST` with no body gets `411 Length Required`. Use GET, or add `-d ''`.
 
@@ -137,6 +137,56 @@ curl -d '{"xPercent":30,"yPercent":75,"soundEnabled":true}' http://PC:9595/api/s
 
 "No" means restart PowerPoint after editing the file.
 
+## Companion module (dev)
+
+```sh
+cd companion-modules/companion-module-pptimer
+corepack yarn install
+```
+
+In the Companion launcher's settings, set **Developer modules path** to
+`…/PPtimer/companion-modules`. Then add a connection of type *pptimer* with the PC's IP and
+port 9595. Presets are under *Timer control*, *Adjust time*, *Features on / off* and *Set duration*. For
+development without Windows, point it at `localhost` with `./build.sh dev` running.
+
+## Mac version
+
+A menu bar app (`PPTimer.app`) instead of an add-in. It has the same API on port 9595, the same web
+pages and the same `config.json` keys, so the Companion module works unchanged: point it at the
+Mac's IP address. The menu bar shows the countdown (◉ = on a presenter view, ○ = none) and has
+start/pause, reset, ±1 minute, show/hide, the remote URL and *Open at Login*.
+
+```sh
+./build.sh mac          # -> dist/PPTimer-mac/PPTimer.app and dist/PPTimer-mac.zip (universal)
+./build.sh mac run      # build, quit the running copy, start the new one
+```
+
+Copy `PPTimer.app` to `/Applications` and open it. Files live in
+`~/Library/Application Support/PPTimer/` (`config.json`, `pptimer.log`).
+
+**Finding the presenter view** (polled 4× a second):
+- **Keynote**: no permission needed. While a slideshow plays on two displays, the audience slides are
+  a full-display window at window level 25, and the presenter display is a full-display window at
+  level 9 on the other display. That is what PPTimer looks for. Playing on one display, or with
+  mirrored displays, has no presenter display, so nothing is shown.
+- **PowerPoint**: PPTimer asks PowerPoint for `bounds of every presenter view window` over Apple
+  Events. The first time PowerPoint is running, macOS asks *"PPTimer wants access to control
+  Microsoft PowerPoint"*: click **Allow**. If you clicked Don't Allow, the menu shows *Allow PowerPoint
+  Access…* (System Settings → Privacy & Security → Automation → PPTimer → Microsoft PowerPoint).
+
+**The overlay** is a borderless panel at screen-saver level on the presenter view's display. It never
+takes focus, so the clicker and arrow keys still go to Keynote/PowerPoint, and clicks pass through it.
+
+**Signing.** macOS remembers the PowerPoint permission per code signature, so `mac/scripts/sign.sh`
+signs with a self-signed certificate kept in its own keychain
+(`~/Library/Keychains/pptimer-signing.keychain-db`, created on the first build and added to your
+keychain search list). Rebuilds keep the permission. It is not notarized: on another Mac,
+right-click → **Open** the first time (or System Settings → Privacy & Security → *Open Anyway*). Set
+`PPTIMER_SIGN_IDENTITY` to sign with a real Developer ID instead.
+
+Mac differences in `config.json`: no `presenterWindowClasses`. `soundFile` can be any file macOS plays
+(.wav, .aiff, .mp3, .m4a), and `~` is allowed. `GET /api/debug/windows` lists the displays and
+Keynote/PowerPoint windows with their levels, which is useful if a new Keynote version changes them.
 
 ## Troubleshooting
 

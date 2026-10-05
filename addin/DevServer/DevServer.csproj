@@ -8,6 +8,8 @@
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <RollForward>Major</RollForward>
+    <!-- Keep in step with PPTimer.csproj: the API reports this as its version. -->
+    <Version>1.0.1</Version>
   </PropertyGroup>
 
   <ItemGroup>

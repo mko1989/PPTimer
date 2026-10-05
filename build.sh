@@ -4,8 +4,38 @@
 #
 #   ./build.sh            build the add-in
 #   ./build.sh dev        run the dev server (same API, no PowerPoint) on http://localhost:9595/
+#   ./build.sh mac        build the Mac app -> dist/PPTimer-mac/PPTimer.app and dist/PPTimer-mac.zip
+#   ./build.sh mac run    build it, then quit the running copy and start the new one
 set -euo pipefail
 cd "$(dirname "$0")"
+
+MAC_VERSION=1.0.1
+
+if [[ "${1:-}" == "mac" ]]; then
+  # Universal (Apple silicon + Intel) needs full Xcode; Command Line Tools alone build this Mac's arch.
+  ARCHS=(--arch arm64 --arch x86_64)
+  [[ "$(xcode-select -p 2>/dev/null)" == *Xcode.app* ]] || ARCHS=()
+  swift build --package-path mac -c release "${ARCHS[@]}"
+  BIN="$(swift build --package-path mac -c release "${ARCHS[@]}" --show-bin-path)/PPTimer"
+
+  OUT=dist/PPTimer-mac
+  APP="$OUT/PPTimer.app"
+  rm -rf "$OUT"
+  mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+  cp "$BIN" "$APP/Contents/MacOS/PPTimer"
+  sed "s/__VERSION__/$MAC_VERSION/g" mac/Info.plist > "$APP/Contents/Info.plist"
+  cp addin/PPTimer/Core/remote.html addin/PPTimer/Core/display.html "$APP/Contents/Resources/"
+  mac/scripts/sign.sh "$APP"
+
+  (cd dist && rm -f PPTimer-mac.zip && ditto -c -k --keepParent PPTimer-mac/PPTimer.app PPTimer-mac.zip)
+  echo "Built $APP and dist/PPTimer-mac.zip"
+
+  if [[ "${2:-}" == "run" ]]; then
+    pkill -x PPTimer 2>/dev/null && sleep 1 || true
+    open "$APP"
+  fi
+  exit 0
+fi
 
 DOTNET="${DOTNET:-dotnet}"
 if ! command -v "$DOTNET" >/dev/null 2>&1; then

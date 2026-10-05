@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>com.highpass.pptimer</string>
+	<key>CFBundleName</key>
+	<string>PPTimer</string>
+	<key>CFBundleDisplayName</key>
+	<string>PPTimer</string>
+	<key>CFBundleExecutable</key>
+	<string>PPTimer</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>__VERSION__</string>
+	<key>CFBundleVersion</key>
+	<string>__VERSION__</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>12.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>PPTimer asks PowerPoint where its Presenter View is, so it can draw the countdown on it.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>PPTimer is controlled over the network by Bitfocus Companion or a browser.</string>
+</dict>
+</plist>

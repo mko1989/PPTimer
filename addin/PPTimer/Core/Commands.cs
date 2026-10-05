@@ -13,7 +13,7 @@ namespace PPTimer.Core
         public static readonly string[] Names =
         {
             "start", "pause", "toggle", "reset", "restart", "set", "add",
-            "show", "hide", "togglevisible", "settings", "testsound",
+            "show", "hide", "togglevisible", "settings", "testsound", "speed",
         };
 
         static readonly string[] ReservedArgs = { "cmd", "id", "token" };
@@ -58,6 +58,23 @@ namespace PPTimer.Core
                 {
                     if (!TryGetDuration(args, out var ms, out var error)) return error;
                     timer.Add(ms);
+                    return null;
+                }
+                case "speed":
+                {
+                    // percent=105 or rate=1.05 sets it; step=5 / step=-5 nudges it.
+                    if (args.TryGetValue("step", out var stepText) && TryParseNumber(stepText, out var step))
+                    {
+                        timer.SetSpeed(step, relative: true);
+                        return null;
+                    }
+                    double percent;
+                    if (args.TryGetValue("percent", out var p) && TryParseNumber(p, out percent)) { }
+                    else if (args.TryGetValue("rate", out var r) && TryParseNumber(r, out var rate)) percent = rate * 100;
+                    else return "Give 'percent' (e.g. 105), 'rate' (e.g. 1.05) or 'step' (e.g. 5 or -5)";
+                    if (percent < TimerModel.MinSpeedPercent || percent > TimerModel.MaxSpeedPercent)
+                        return $"Speed must be between {TimerModel.MinSpeedPercent} and {TimerModel.MaxSpeedPercent} %";
+                    timer.SetSpeed(percent, relative: false);
                     return null;
                 }
                 case "show":
