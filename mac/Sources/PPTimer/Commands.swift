@@ -19,7 +19,7 @@ struct Args {
 enum Commands {
     static let names = [
         "start", "pause", "toggle", "reset", "restart", "set", "add",
-        "show", "hide", "togglevisible", "settings", "testsound", "speed",
+        "show", "hide", "togglevisible", "settings", "togglesetting", "testsound", "speed",
     ]
 
     private static let reservedArgs: Set<String> = ["cmd", "id", "token"]
@@ -82,6 +82,12 @@ enum Commands {
             return settings.update(args.pairs
                 .filter { !reservedArgs.contains($0.key.lowercased()) }
                 .map { ($0.key, $0.value as Any) })
+        case "togglesetting":
+            // Flipped against the app's own value, so two quick presses always cancel out.
+            guard let key = args["key"] else {
+                return "Give the on/off setting to flip as 'key' (\(settings.current.toggleKeys.joined(separator: ", ")))"
+            }
+            return settings.toggle(key)
         default:
             return "Unknown command '\(cmd ?? "")'. Commands: \(names.joined(separator: ", "))"
         }

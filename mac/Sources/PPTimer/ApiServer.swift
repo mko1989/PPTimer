@@ -192,7 +192,7 @@ final class ApiServer {
         }
         Log.info("HTTP \(cmd) \(format(args)) from \(client.remote)")
         notifyChanged()
-        var body = cmd == "settings" ? settingsMessage() : stateMessage(timer.snapshot())
+        var body = cmd == "settings" || cmd == "togglesetting" ? settingsMessage() : stateMessage(timer.snapshot())
         body["ok"] = true
         respondJson(client, 200, body)
     }

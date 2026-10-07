@@ -94,6 +94,7 @@ body or a form body. Over WebSocket (`/ws`), send `{"cmd": "<cmd>", ...args, "id
 | `speed` | `percent=105` or `rate=1.05`, or `step=5` / `step=-5` | how fast the countdown runs, 50–200 % of real time (see below) |
 | `show` `hide` `togglevisible` | | overlay visibility |
 | `settings` | any runtime key below | no args returns current settings |
+| `togglesetting` | `key=soundEnabled` (any on/off runtime key) | flips it against the add-in's current value; returns the settings |
 | `testsound` | | plays the zero sound once |
 | `state` | | `GET /api/state` |
 

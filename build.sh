@@ -9,7 +9,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-MAC_VERSION=1.0.2
+MAC_VERSION=1.0.3
 
 if [[ "${1:-}" == "mac" ]]; then
   # Universal (Apple silicon + Intel) needs full Xcode; Command Line Tools alone build this Mac's arch.

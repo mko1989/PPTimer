@@ -13,7 +13,7 @@ namespace PPTimer.Core
         public static readonly string[] Names =
         {
             "start", "pause", "toggle", "reset", "restart", "set", "add",
-            "show", "hide", "togglevisible", "settings", "testsound", "speed",
+            "show", "hide", "togglevisible", "settings", "togglesetting", "testsound", "speed",
         };
 
         static readonly string[] ReservedArgs = { "cmd", "id", "token" };
@@ -93,6 +93,11 @@ namespace PPTimer.Core
                     return settings.Update(args
                         .Where(kv => !ReservedArgs.Contains(kv.Key, StringComparer.OrdinalIgnoreCase))
                         .Select(kv => new KeyValuePair<string, object>(kv.Key, kv.Value)));
+                case "togglesetting":
+                    // Flipped against the add-in's own value, so two quick presses always cancel out.
+                    return args.TryGetValue("key", out var key)
+                        ? settings.Toggle(key)
+                        : $"Give the on/off setting to flip as 'key' ({string.Join(", ", settings.Current.ToggleKeys)})";
                 default:
                     return $"Unknown command '{cmd}'. Commands: {string.Join(", ", Names)}";
             }

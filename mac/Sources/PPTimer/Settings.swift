@@ -79,6 +79,12 @@ struct Settings {
         return d
     }
 
+    /// The on/off runtime settings, which `togglesetting` can flip.
+    var toggleKeys: [String] {
+        let values = toDictionary(includeSecrets: false)
+        return Self.runtimeKeys.filter { values[$0].map(Json.isBool) ?? false }
+    }
+
     /// Applies one value. Returns an error message, or nil on success.
     mutating func apply(_ key: String, _ value: Any) -> String? {
         do {
@@ -211,6 +217,25 @@ final class SettingsStore {
             lock.unlock()
             return nil
         }
+        settings = next
+        save(next)
+        lock.unlock()
+        onChanged.forEach { $0() }
+        return nil
+    }
+
+    /// Flips an on/off runtime setting in one step. Returns an error message, or nil on success.
+    func toggle(_ key: String) -> String? {
+        lock.lock()
+        let trimmed = key.trimmingCharacters(in: .whitespaces)
+        guard let name = settings.toggleKeys.first(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }),
+              let value = settings.toDictionary(includeSecrets: false)[name] as? Bool else {
+            let keys = settings.toggleKeys.joined(separator: ", ")
+            lock.unlock()
+            return "'\(key)' is not an on/off setting (on/off settings: \(keys))"
+        }
+        var next = settings
+        _ = next.apply(name, !value)
         settings = next
         save(next)
         lock.unlock()

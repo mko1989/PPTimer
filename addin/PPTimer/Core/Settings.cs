@@ -72,6 +72,16 @@ namespace PPTimer.Core
 
         public Settings Clone() => (Settings)MemberwiseClone();
 
+        /// <summary>The on/off runtime settings, which <c>togglesetting</c> can flip.</summary>
+        public IEnumerable<string> ToggleKeys
+        {
+            get
+            {
+                var values = ToDictionary(includeSecrets: false);
+                return RuntimeKeys.Where(k => values[k] is bool);
+            }
+        }
+
         public Dictionary<string, object> ToDictionary(bool includeSecrets)
         {
             var d = new Dictionary<string, object>
@@ -258,6 +268,23 @@ namespace PPTimer.Core
                     any = true;
                 }
                 if (!any) return null;
+                Volatile.Write(ref current, next);
+                Save(next);
+            }
+            Changed?.Invoke();
+            return null;
+        }
+
+        /// <summary>Flips an on/off runtime setting in one step. Returns an error message, or null on success.</summary>
+        public string Toggle(string key)
+        {
+            lock (gate)
+            {
+                var name = current.ToggleKeys.FirstOrDefault(k => k.Equals((key ?? "").Trim(), StringComparison.OrdinalIgnoreCase));
+                if (name == null)
+                    return $"'{key}' is not an on/off setting (on/off settings: {string.Join(", ", current.ToggleKeys)})";
+                var next = current.Clone();
+                next.Apply(name, !(bool)current.ToDictionary(includeSecrets: false)[name]);
                 Volatile.Write(ref current, next);
                 Save(next);
             }

@@ -222,7 +222,7 @@ namespace PPTimer.Core
                     }
                     Log.Info($"HTTP {cmd} {FormatArgs(args)} from {RemoteOf(req)}");
                     NotifyChanged();
-                    var body = cmd == "settings" ? SettingsMessage() : StateMessage(timer.Snapshot());
+                    var body = cmd == "settings" || cmd == "togglesetting" ? SettingsMessage() : StateMessage(timer.Snapshot());
                     body["ok"] = true;
                     WriteJson(res, 200, body);
                     return;
