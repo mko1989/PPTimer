@@ -20,7 +20,13 @@ enum Commands {
     static let names = [
         "start", "pause", "toggle", "reset", "restart", "set", "add",
         "show", "hide", "togglevisible", "settings", "togglesetting", "testsound", "speed",
+        "layout", "savelayout", "deletelayout", "renamelayout",
     ]
+
+    /// Commands whose reply is the settings (rather than the timer state).
+    static func repliesWithSettings(_ cmd: String) -> Bool {
+        cmd == "settings" || cmd == "togglesetting" || cmd.hasSuffix("layout")
+    }
 
     private static let reservedArgs: Set<String> = ["cmd", "id", "token"]
 
@@ -88,10 +94,31 @@ enum Commands {
                 return "Give the on/off setting to flip as 'key' (\(settings.current.toggleKeys.joined(separator: ", ")))"
             }
             return settings.toggle(key)
+        case "layout":
+            // name=Keynote selects; step=1 / step=-1 cycles (one Companion button for all layouts).
+            if let s = args["step"], let step = parseNumber(s), step != 0 {
+                return settings.mutate { $0.stepLayout(step > 0 ? 1 : -1); return nil }
+            }
+            guard let name = arg(args, "name") ?? arg(args, "layout") else {
+                return "Give the layout as 'name' (\(settings.current.layoutNames.joined(separator: ", "))), or 'step' (1 = next, -1 = previous)"
+            }
+            return settings.mutate { $0.selectLayout(name) }
+        case "savelayout":
+            // Saves the current target, position and look under a new name (or over an existing one).
+            return settings.mutate { $0.saveLayoutAs(arg(args, "name")) }
+        case "deletelayout":
+            return settings.mutate { $0.deleteLayout(arg(args, "name") ?? $0.activeLayout.name) }
+        case "renamelayout":
+            return settings.mutate { $0.renameLayout(arg(args, "name") ?? $0.activeLayout.name, to: arg(args, "to")) }
         default:
             return "Unknown command '\(cmd ?? "")'. Commands: \(names.joined(separator: ", "))"
         }
         return nil
+    }
+
+    private static func arg(_ args: Args, _ key: String) -> String? {
+        guard let v = args[key]?.trimmingCharacters(in: .whitespaces), !v.isEmpty else { return nil }
+        return v
     }
 
     struct DurationError: Error {

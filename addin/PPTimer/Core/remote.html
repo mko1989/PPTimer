@@ -57,6 +57,19 @@
             cursor: nwse-resize; border-radius: 3px 0 4px 0; }
   #posRow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-top: 10px; }
   #posReadout { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  #stage.blackout { background: #000; border-color: #555; }
+  #stage.screen:not(.blackout) { background: repeating-linear-gradient(135deg, #101010 0 14px, #141414 14px 28px); }
+
+  /* Layout presets */
+  #layouts { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  #layouts button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
+  #layouts button small { color: var(--muted); font-size: 12px; }
+  #layouts button.active { border-color: var(--accent); background: rgba(61, 139, 253, .18); }
+  #layoutTools { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+  #layoutTools button { font-size: 14px; padding: 6px 10px; }
+  select { font: inherit; font-size: 15px; padding: 7px 8px; border-radius: 8px; border: 1px solid #444; background: #2a2a2a; color: var(--text); max-width: 100%; }
+  #targetRow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+  #targetRow > span { color: var(--muted); font-size: 14px; }
 
   /* Settings */
   .opts { display: grid; grid-template-columns: 1fr; gap: 2px; }
@@ -115,8 +128,24 @@
     <div class="row"><a id="displayLink" href="/display" target="_blank">Open display-only page &rarr;</a></div>
   </section>
 
-  <section class="card">
-    <h2>Position on the presenter view</h2>
+  <section class="card" id="layoutCard">
+    <h2>Layout</h2>
+    <div id="layouts"></div>
+    <div id="layoutTools" hidden>
+      <button id="saveAsButton" title="Save the current target, position and look under a new name">Save as new&hellip;</button>
+      <button id="renameButton">Rename&hellip;</button>
+      <button id="deleteButton">Delete</button>
+    </div>
+    <div id="targetRow" hidden>
+      <span>Show on</span>
+      <select id="targetSelect" data-key="target" aria-label="Show the timer on">
+        <option value="powerpoint">PowerPoint presenter view</option>
+        <option value="keynote">Keynote presenter display</option>
+        <option value="presenter">PowerPoint or Keynote presenter view</option>
+        <option value="screen">A screen (on top of anything)</option>
+      </select>
+      <select id="screenSelect" data-key="screen" aria-label="Screen"></select>
+    </div>
     <div id="stage">
       <div id="stageLabel">Presenter view</div>
       <div id="box"><span id="boxText">05:00</span><div class="handle" title="Drag to resize"></div></div>
@@ -124,6 +153,15 @@
     <div id="posRow">
       <span id="posReadout"></span>
       <button id="resetPosButton">Reset position</button>
+    </div>
+    <div class="opts" style="margin-top:8px">
+      <div class="opt"><label><input type="checkbox" data-key="blackout"> Black screen behind the timer (fullscreen)</label></div>
+      <div class="opt"><label><input type="checkbox" data-key="transparentBackground"> Transparent background</label></div>
+      <div class="opt"><label><input type="checkbox" data-key="textOutline"> Dark outline around digits</label></div>
+      <div class="opt">
+        <label style="flex:0 0 auto;min-width:0">Opacity</label>
+        <input type="range" min="20" max="100" step="5" data-key="opacity" data-kind="percent" aria-label="Opacity">
+      </div>
     </div>
   </section>
 
@@ -149,17 +187,6 @@
     </div>
   </section>
 
-  <section class="card">
-    <h2>Look</h2>
-    <div class="opts">
-      <div class="opt"><label><input type="checkbox" data-key="transparentBackground"> Transparent background</label></div>
-      <div class="opt"><label><input type="checkbox" data-key="textOutline"> Dark outline around digits</label></div>
-      <div class="opt">
-        <label style="flex:0 0 auto;min-width:0">Opacity</label>
-        <input type="range" min="20" max="100" step="5" data-key="opacity" data-kind="percent" aria-label="Opacity">
-      </div>
-    </div>
-  </section>
 </main>
 
 <script>
@@ -168,9 +195,15 @@
   const $ = (id) => document.getElementById(id);
   const timeEl = $('time'), statusEl = $('status'), errorEl = $('error');
   const stage = $('stage'), box = $('box'), boxText = $('boxText');
-  const DEFAULT_POS = { xPercent: 22, yPercent: 74, widthPercent: 16, heightPercent: 9 };
+  const DEFAULT_POS = {
+    presenter: { xPercent: 22, yPercent: 74, widthPercent: 16, heightPercent: 9 },
+    screen: { xPercent: 80, yPercent: 2, widthPercent: 18, heightPercent: 10 },
+    blackout: { xPercent: 5, yPercent: 15, widthPercent: 90, heightPercent: 70 },
+  };
+  const TARGET_NAMES = { powerpoint: 'PowerPoint presenter view', keynote: 'Keynote presenter display',
+                         presenter: 'Presenter view', screen: 'Screen' };
 
-  let ws, state = null, settings = null, dragging = false;
+  let ws, state = null, settings = null, platform = '', dragging = false;
 
   // ---- connection -------------------------------------------------------------------------
 
@@ -180,7 +213,8 @@
     ws.onmessage = (e) => {
       const m = JSON.parse(e.data);
       if (m.type === 'state') onState(m);
-      else if (m.type === 'hello' || m.type === 'settings') onSettings(m.settings);
+      else if (m.type === 'hello') { platform = m.platform || ''; onSettings(m.settings); }
+      else if (m.type === 'settings') onSettings(m.settings);
       else if (m.type === 'result' && !m.ok) showError(m.error);
     };
     ws.onclose = () => { statusEl.textContent = 'disconnected, retrying…'; setTimeout(connect, 1000); };
@@ -202,9 +236,12 @@
     timeEl.textContent = m.display;
     const blinking = m.phase === 'expired' && settings && settings.blinkAtZero && m.running;
     timeEl.className = m.phase + (m.running ? '' : ' paused') + (blinking ? ' blink' : '');
+    // Hosts from before layouts don't send target.
+    const where = m.target !== undefined
+      ? (m.presenterView ? 'on ' + m.target : (m.layout || 'layout') + ': ' + missingText())
+      : 'presenter view ' + (m.presenterView ? 'detected' : 'not detected');
     statusEl.textContent = (m.running ? 'running' : 'paused') + ' · of ' + m.duration +
-      ' · overlay ' + (m.visible ? 'on' : 'off') +
-      ' · presenter view ' + (m.presenterView ? 'detected' : 'not detected') +
+      ' · overlay ' + (m.visible ? 'on' : 'off') + ' · ' + where +
       (m.speedPercent !== undefined && m.speedPercent !== 100 ? ' · speed ' + m.speedPercent + '%' : '');
 
     // Hosts from before the speed control don't send speedPercent.
@@ -212,22 +249,129 @@
     $('speedNormal').textContent = m.speedPercent === 100 ? 'Speed 100%' : 'Speed ' + m.speedPercent + '% · reset';
     $('speedNormal').classList.toggle('changed', m.speedPercent !== 100);
 
-    if (m.presenterWidth > 0 && m.presenterHeight > 0) stage.style.aspectRatio = m.presenterWidth + ' / ' + m.presenterHeight;
+    if (m.presenterView && m.presenterWidth > 0 && m.presenterHeight > 0) stage.style.aspectRatio = m.presenterWidth + ' / ' + m.presenterHeight;
+    else {
+      const screen = settings && settings.target === 'screen' && findScreen(settings.screen);
+      if (screen) stage.style.aspectRatio = screen.width + ' / ' + screen.height;
+    }
+    fillScreens();
+    renderLayout();
     renderBox();
   }
 
   function onSettings(s) {
     settings = s;
+    renderLayouts();
+    fillScreens();
     fillForm();
+    renderLayout();
     renderBox();
   }
+
+  // ---- layouts ----------------------------------------------------------------------------
+
+  const hasLayouts = () => settings && Array.isArray(settings.layouts);
+
+  function describeTarget(l) {
+    if (l.target !== 'screen') return TARGET_NAMES[l.target] || l.target;
+    const where = l.screen === 'main' ? 'main screen' : l.screen === 'external' ? 'external screen'
+      : /^\d+$/.test(l.screen) ? 'screen ' + l.screen : '"' + l.screen + '"';
+    return where + (l.blackout ? ', fullscreen' : '');
+  }
+
+  function missingText() {
+    if (!settings) return 'not found';
+    if (settings.target === 'screen') return 'screen not connected';
+    if (settings.target === 'keynote' && platform === 'Windows') return 'Keynote is Mac only';
+    return 'no presenter view (start a slideshow)';
+  }
+
+  function renderLayouts() {
+    const container = $('layouts');
+    container.textContent = '';
+    if (!hasLayouts()) {
+      // A host from before layouts: only the position editor applies.
+      $('layoutTools').hidden = $('targetRow').hidden = true;
+      return;
+    }
+    $('layoutTools').hidden = $('targetRow').hidden = false;
+    for (const l of settings.layouts) {
+      const b = document.createElement('button');
+      b.className = l.name === settings.layout ? 'active' : '';
+      const name = document.createElement('span');
+      name.textContent = l.name;
+      const sub = document.createElement('small');
+      sub.textContent = describeTarget(l);
+      b.append(name, sub);
+      b.addEventListener('click', () => send({ cmd: 'layout', name: l.name }));
+      container.append(b);
+    }
+    $('deleteButton').disabled = settings.layouts.length < 2;
+  }
+
+  function findScreen(spec) {
+    const screens = (state && state.screens) || [];
+    if (spec === 'main') return screens.find((s) => s.main) || screens[0];
+    if (spec === 'external') return screens.find((s) => s.external && !s.main) || screens.find((s) => !s.main);
+    if (/^\d+$/.test(spec)) return screens[Number(spec) - 1];
+    return screens.find((s) => s.name.toLowerCase().includes(String(spec).toLowerCase()));
+  }
+
+  function fillScreens() {
+    const select = $('screenSelect');
+    const screens = (state && state.screens) || [];
+    const current = settings ? settings.screen : 'main';
+    const options = [['main', 'Main screen'], ['external', 'External screen']]
+      .concat(screens.map((s) => [s.id, s.id + ' · ' + s.name + ' (' + s.width + '×' + s.height + ')' + (s.main ? ', main' : '')]));
+    if (current && !options.some(([v]) => v === current)) options.push([current, '"' + current + '" (not connected)']);
+    const key = JSON.stringify(options);
+    if (select.dataset.options !== key) {
+      select.dataset.options = key;
+      select.textContent = '';
+      for (const [value, label] of options) select.append(new Option(label, value));
+    }
+    if (document.activeElement !== select) select.value = current;
+  }
+
+  function renderLayout() {
+    if (!settings) return;
+    const target = settings.target || 'powerpoint';
+    // Keynote only exists on the Mac; "either" is the same as PowerPoint on Windows.
+    for (const o of $('targetSelect').options) {
+      o.hidden = platform === 'Windows' && (o.value === 'keynote' || o.value === 'presenter') && o.value !== target;
+    }
+    $('screenSelect').hidden = target !== 'screen';
+    stage.classList.toggle('screen', target === 'screen');
+    stage.classList.toggle('blackout', !!settings.blackout);
+    let label = hasLayouts() ? describeTarget(settings) : 'Presenter view';
+    if (state && state.target !== undefined) label = state.presenterView ? state.target : label + ' (' + missingText() + ')';
+    $('stageLabel').textContent = label;
+  }
+
+  $('saveAsButton').addEventListener('click', () => {
+    const name = prompt('Save the current layout as:', settings ? settings.layout + ' copy' : '');
+    if (name && name.trim()) send({ cmd: 'savelayout', name: name.trim() });
+  });
+  $('renameButton').addEventListener('click', () => {
+    if (!settings) return;
+    const to = prompt('New name for "' + settings.layout + '":', settings.layout);
+    if (to && to.trim() && to.trim() !== settings.layout) send({ cmd: 'renamelayout', name: settings.layout, to: to.trim() });
+  });
+  $('deleteButton').addEventListener('click', () => {
+    if (settings && confirm('Delete the layout "' + settings.layout + '"?')) send({ cmd: 'deletelayout', name: settings.layout });
+  });
 
   // ---- position editor --------------------------------------------------------------------
 
   function currentPos() {
     return settings
       ? { xPercent: settings.xPercent, yPercent: settings.yPercent, widthPercent: settings.widthPercent, heightPercent: settings.heightPercent }
-      : DEFAULT_POS;
+      : DEFAULT_POS.presenter;
+  }
+
+  function defaultPos() {
+    if (!settings) return DEFAULT_POS.presenter;
+    return settings.blackout ? DEFAULT_POS.blackout : settings.target === 'screen' ? DEFAULT_POS.screen : DEFAULT_POS.presenter;
   }
 
   function renderBox(pos) {
@@ -310,7 +454,7 @@
 
   new ResizeObserver(() => { if (!dragging) renderBox(); }).observe(stage);
 
-  $('resetPosButton').addEventListener('click', () => sendSettings(DEFAULT_POS));
+  $('resetPosButton').addEventListener('click', () => sendSettings(defaultPos()));
 
   // ---- settings form ----------------------------------------------------------------------
 
@@ -335,9 +479,11 @@
         if (el.type === 'checkbox') el.checked = !!settings[key];
         else if (el.dataset.kind === 'time') el.value = formatTime(settings[key]);
         else if (el.dataset.kind === 'percent') el.value = Math.round(settings[key] * 100);
-        else el.value = settings[key] ?? '';
+        else if (key !== 'screen') el.value = settings[key] ?? '';
       }
       if (el.dataset.enabledBy) el.disabled = !settings[el.dataset.enabledBy];
+      // Hosts from before layouts have no target, screen or blackout.
+      if (el.closest('.opt') && !(key in settings)) el.closest('.opt').hidden = true;
     }
   }
 

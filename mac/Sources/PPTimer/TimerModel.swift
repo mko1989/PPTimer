@@ -16,10 +16,16 @@ struct TimerSnapshot {
     var progress = 0.0
     /// How fast the countdown runs, in % of real time (100 = normal).
     var speedPercent = 100.0
+    /// Name of the active layout preset.
+    var layout = ""
+    /// What the timer is placed on ("Keynote presenter display", "Screen 2 · DELL U2720"), "" when not found.
+    var target = ""
+    var screens: [ScreenDescription] = []
 
     /// Changes whenever anything a client would display changes.
     var changeKey: String {
-        "\(display)|\(phase)|\(running)|\(visible)|\(presenterView)|\(presenterWidth)x\(presenterHeight)|\(durationMs)|\(speedPercent)"
+        "\(display)|\(phase)|\(running)|\(visible)|\(presenterView)|\(presenterWidth)x\(presenterHeight)|\(durationMs)|\(speedPercent)|" +
+            "\(layout)|\(target)|\(screens.map(\.key).joined(separator: ";"))"
     }
 
     func toDictionary() -> [String: Any] {
@@ -39,7 +45,26 @@ struct TimerSnapshot {
             // Decimal, so JSON gets 0.7597 rather than 0.75970000000000004.
             "progress": NSDecimalNumber(value: Int((progress * 10000).rounded())).multiplying(byPowerOf10: -4),
             "speedPercent": NSDecimalNumber(value: Int((speedPercent * 10).rounded())).multiplying(byPowerOf10: -1),
+            "layout": layout,
+            "target": target,
+            "screens": screens.map { $0.toDictionary() },
         ]
+    }
+}
+
+/// A display, as offered for a "screen" layout. `id` is what the layout's "screen" setting takes.
+struct ScreenDescription: Equatable {
+    var id: String
+    var name: String
+    var width: Int
+    var height: Int
+    var main: Bool
+    var external: Bool
+
+    var key: String { "\(id):\(name):\(width)x\(height):\(main):\(external)" }
+
+    func toDictionary() -> [String: Any] {
+        ["id": id, "name": name, "width": width, "height": height, "main": main, "external": external]
     }
 }
 
@@ -61,6 +86,8 @@ final class TimerModel {
     private var presenterView = false
     private var presenterWidth = 0
     private var presenterHeight = 0
+    private var target = ""
+    private var screens: [ScreenDescription] = []
     private var zeroFired = false
 
     /// Called once each time a running countdown reaches zero (on whichever thread noticed).
@@ -174,14 +201,21 @@ final class TimerModel {
         locked { visible.toggle() }
     }
 
-    func setPresenterView(_ detected: Bool, width: Int, height: Int) {
+    /// Where the overlay is placed: `description` is nil when the active layout's target was not found.
+    /// (Reported as presenterView / presenterWidth / presenterHeight, the names from before layouts existed.)
+    func setTarget(_ description: String?, width: Int, height: Int) {
         locked {
-            presenterView = detected
-            if detected {
+            presenterView = description != nil
+            target = description ?? ""
+            if description != nil {
                 presenterWidth = width
                 presenterHeight = height
             }
         }
+    }
+
+    func setScreens(_ list: [ScreenDescription]) {
+        locked { screens = list }
     }
 
     func requestSoundTest() {
@@ -221,7 +255,10 @@ final class TimerModel {
                 phase: phase,
                 overtime: remaining < 0,
                 progress: durationMs > 0 ? max(0, min(1, Double(remaining) / Double(durationMs))) : 0,
-                speedPercent: (speed * 1000).rounded() / 10)
+                speedPercent: (speed * 1000).rounded() / 10,
+                layout: cfg.activeLayout.name,
+                target: target,
+                screens: screens)
         }
         if fireZero { onZeroReached.forEach { $0() } }
         return snap

@@ -2,13 +2,14 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 
 namespace PPTimer.Core
 {
     /// <summary>
     /// Minimal JSON reader/writer so the core has no dependencies and runs on both
-    /// .NET Framework (the add-in) and modern .NET (the Mac dev server).
+    /// .NET Framework (the Windows app) and modern .NET (the Mac dev server).
     /// Objects parse to Dictionary&lt;string, object&gt;, arrays to List&lt;object&gt;, numbers to double.
     /// </summary>
     public static class Json
@@ -89,14 +90,19 @@ namespace PPTimer.Core
 
         static void WriteArray(StringBuilder sb, IEnumerable list, bool indent, int depth)
         {
+            // Indented: a list of objects (the layouts) gets one compact object per line; anything else stays on one line.
+            var items = list.Cast<object>().ToList();
+            var perLine = indent && items.Any(i => i is IDictionary<string, object>);
             sb.Append('[');
             var first = true;
-            foreach (var item in list)
+            foreach (var item in items)
             {
-                if (!first) sb.Append(indent ? ", " : ",");
+                if (!first) sb.Append(perLine ? "," : indent ? ", " : ",");
                 first = false;
+                NewLine(sb, perLine, depth + 1);
                 Write(sb, item, false, depth + 1);
             }
+            NewLine(sb, perLine && items.Count > 0, depth);
             sb.Append(']');
         }
 

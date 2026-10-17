@@ -46,8 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         overlay = OverlayController(timer: timer, settings: settings)
         finder = PresenterFinder()
-        finder.onChange = { [weak self] target in
-            self?.overlay.setTarget(target)
+        finder.onChange = { [weak self] presenters in
+            self?.overlay.setPresenters(presenters)
             self?.api.notifyChanged()
         }
 
@@ -79,7 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func updateTitle() {
         let snap = timer.snapshot()
-        let title = "\(snap.display)|\(snap.phase)|\(snap.running)|\(snap.presenterView)"
+        let title = "\(snap.display)|\(snap.phase)|\(snap.running)|\(snap.presenterView)|\(snap.target)|\(snap.layout)"
         guard title != lastTitle, let button = statusItem.button else { return }
         lastTitle = title
         let color: NSColor
@@ -93,7 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .medium),
             .foregroundColor: color,
         ])
-        button.toolTip = snap.presenterView ? "PPTimer: on the presenter view" : "PPTimer: no presenter view"
+        button.toolTip = snap.presenterView ? "PPTimer: on \(snap.target)" : "PPTimer (\(snap.layout)): target not found"
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -125,9 +125,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(item("Run Faster (+5%)", #selector(faster), key: "]"))
         menu.addItem(item("Run Slower (−5%)", #selector(slower), key: "["))
         if snap.speedPercent != 100 { menu.addItem(item("Back to Normal Speed", #selector(normalSpeed))) }
-        let visible = item("Show Timer on Presenter View", #selector(toggleVisible))
+        let visible = item("Show Timer", #selector(toggleVisible))
         visible.state = snap.visible ? .on : .off
         menu.addItem(visible)
+
+        menu.addItem(.separator())
+        let cfg = settings.current
+        let layouts = NSMenu()
+        for (i, layout) in cfg.layouts.enumerated() {
+            let choice = item("\(layout.name)  (\(Self.targetLabel(layout)))", #selector(selectLayout(_:)))
+            choice.tag = i
+            choice.representedObject = layout.name
+            choice.state = i == cfg.activeLayoutIndex ? .on : .off
+            layouts.addItem(choice)
+        }
+        layouts.addItem(.separator())
+        layouts.addItem(item("Edit Layouts in Browser…", #selector(openRemote)))
+        let layoutItem = NSMenuItem(title: "Layout: \(cfg.activeLayout.name)", action: nil, keyEquivalent: "")
+        layoutItem.submenu = layouts
+        menu.addItem(layoutItem)
 
         menu.addItem(.separator())
         menu.addItem(item("Open Remote in Browser", #selector(openRemote)))
@@ -144,11 +160,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func presenterStatus() -> String {
-        guard let target = overlay.target else { return "No presenter view (start a slideshow)" }
-        let screen = NSScreen.screens.first {
-            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == target.displayID
+        if let target = overlay.targetDescription { return "On \(target)" }
+        let layout = settings.current.activeLayout
+        let why = layout.isScreen ? "screen not connected" : "no presenter view (start a slideshow)"
+        return "\(layout.name): \(why)"
+    }
+
+    private static func targetLabel(_ layout: Layout) -> String {
+        switch layout.target {
+        case "screen":
+            let screen = layout.screen == "main" ? "main screen" : layout.screen == "external" ? "external screen" : "screen \(layout.screen)"
+            return layout.blackout ? "\(screen), fullscreen" : screen
+        case "keynote": return "Keynote presenter display"
+        case "powerpoint": return "PowerPoint presenter view"
+        default: return "Keynote or PowerPoint presenter view"
         }
-        return "On \(target.app) presenter view" + (screen.map { " · \($0.localizedName)" } ?? "")
+    }
+
+    @objc private func selectLayout(_ sender: NSMenuItem) {
+        if let name = sender.representedObject as? String { run("layout", [("name", name)]) }
     }
 
     private func info(_ title: String) -> NSMenuItem {

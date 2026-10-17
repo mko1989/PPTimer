@@ -21,11 +21,16 @@ namespace PPTimer.DevServer
             var settings = new SettingsStore(Path.Combine(dataDir, "config.json"));
             settings.Load();
             var timer = new TimerModel(settings);
-            timer.SetPresenterView(Array.IndexOf(args, "--no-presenter") < 0, 1920, 1080);
+            timer.SetTarget(Array.IndexOf(args, "--no-presenter") < 0 ? "Dev server (no real presenter view)" : null, 1920, 1080);
+            timer.SetScreens(new[]
+            {
+                new ScreenDescription { Id = "1", Name = "Built-in display", Width = 1920, Height = 1080, Main = true },
+                new ScreenDescription { Id = "2", Name = "External display", Width = 1920, Height = 1080, External = true },
+            });
             timer.ZeroReached += () => Log.Info(settings.Current.SoundEnabled ? "(would play sound)" : "(sound disabled)");
             timer.SoundTestRequested += () => Log.Info("(would play test sound)");
 
-            using var api = new ApiServer(timer, settings);
+            using var api = new ApiServer(timer, settings, platform: "dev");
             api.Start();
             if (api.ListeningOn == null) return 1;
 

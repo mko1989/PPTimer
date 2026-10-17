@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 
 namespace PPTimer.Core
 {
@@ -21,10 +22,16 @@ namespace PPTimer.Core
         public double Progress;
         /// <summary>How fast the countdown runs, in % of real time (100 = normal).</summary>
         public double SpeedPercent;
+        /// <summary>Name of the active layout preset.</summary>
+        public string Layout;
+        /// <summary>What the timer is placed on ("PowerPoint presenter view", "Screen 2 · DELL U2720"), "" when not found.</summary>
+        public string Target;
+        public IReadOnlyList<ScreenDescription> Screens;
 
         /// <summary>Changes whenever anything a client would display changes.</summary>
         public string ChangeKey =>
-            $"{Display}|{Phase}|{Running}|{Visible}|{PresenterView}|{PresenterWidth}x{PresenterHeight}|{DurationMs}|{SpeedPercent}";
+            $"{Display}|{Phase}|{Running}|{Visible}|{PresenterView}|{PresenterWidth}x{PresenterHeight}|{DurationMs}|{SpeedPercent}|{Layout}|{Target}|" +
+            string.Join(";", Screens ?? new ScreenDescription[0]);
 
         public Dictionary<string, object> ToDictionary() => new Dictionary<string, object>
         {
@@ -42,6 +49,32 @@ namespace PPTimer.Core
             ["overtime"] = Overtime,
             ["progress"] = Math.Round(Progress, 4),
             ["speedPercent"] = SpeedPercent,
+            ["layout"] = Layout,
+            ["target"] = Target,
+            ["screens"] = (Screens ?? new ScreenDescription[0]).Select(sc => (object)sc.ToDictionary()).ToList(),
+        };
+    }
+
+    /// <summary>A display, as offered for a "screen" layout. Id is what the layout's "screen" setting takes.</summary>
+    public sealed class ScreenDescription
+    {
+        public string Id;
+        public string Name;
+        public int Width;
+        public int Height;
+        public bool Main;
+        public bool External;
+
+        public override string ToString() => $"{Id}:{Name}:{Width}x{Height}:{Main}:{External}";
+
+        public Dictionary<string, object> ToDictionary() => new Dictionary<string, object>
+        {
+            ["id"] = Id,
+            ["name"] = Name,
+            ["width"] = Width,
+            ["height"] = Height,
+            ["main"] = Main,
+            ["external"] = External,
         };
     }
 
@@ -67,6 +100,8 @@ namespace PPTimer.Core
         bool presenterView;
         int presenterWidth;
         int presenterHeight;
+        string target = "";
+        IReadOnlyList<ScreenDescription> screens = new ScreenDescription[0];
         bool zeroFired;
 
         public TimerModel(SettingsStore settings)
@@ -195,17 +230,27 @@ namespace PPTimer.Core
             lock (gate) visible = !visible;
         }
 
-        public void SetPresenterView(bool detected, int width, int height)
+        /// <summary>
+        /// Where the overlay is placed: <paramref name="description"/> is null when the active layout's target was not
+        /// found. (Reported as presenterView / presenterWidth / presenterHeight, the names from before layouts existed.)
+        /// </summary>
+        public void SetTarget(string description, int width, int height)
         {
             lock (gate)
             {
-                presenterView = detected;
-                if (detected)
+                presenterView = description != null;
+                target = description ?? "";
+                if (description != null)
                 {
                     presenterWidth = width;
                     presenterHeight = height;
                 }
             }
+        }
+
+        public void SetScreens(IReadOnlyList<ScreenDescription> list)
+        {
+            lock (gate) screens = list;
         }
 
         public void RequestSoundTest() => SoundTestRequested?.Invoke();
@@ -250,6 +295,9 @@ namespace PPTimer.Core
                     Overtime = remaining < 0,
                     Progress = durationMs > 0 ? Math.Max(0, Math.Min(1, remaining / (double)durationMs)) : 0,
                     SpeedPercent = Math.Round(speed * 100, 1),
+                    Layout = cfg.ActiveLayout.Name,
+                    Target = target,
+                    Screens = screens,
                 };
             }
 

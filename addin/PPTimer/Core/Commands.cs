@@ -14,7 +14,12 @@ namespace PPTimer.Core
         {
             "start", "pause", "toggle", "reset", "restart", "set", "add",
             "show", "hide", "togglevisible", "settings", "togglesetting", "testsound", "speed",
+            "layout", "savelayout", "deletelayout", "renamelayout",
         };
+
+        /// <summary>Commands whose reply is the settings (rather than the timer state).</summary>
+        public static bool RepliesWithSettings(string cmd) =>
+            cmd == "settings" || cmd == "togglesetting" || (cmd ?? "").EndsWith("layout", StringComparison.Ordinal);
 
         static readonly string[] ReservedArgs = { "cmd", "id", "token" };
 
@@ -50,7 +55,7 @@ namespace PPTimer.Core
                         catch (FormatException ex) { return ex.Message; }
                     }
                     timer.Set(ms, start);
-                    // Remember it so a PowerPoint restart comes back with the same duration.
+                    // Remember it so a restart of PPTimer comes back with the same duration.
                     settings.Update(new[] { new KeyValuePair<string, object>("defaultDurationSeconds", (int)(ms / 1000)) }, allowAll: true);
                     return null;
                 }
@@ -94,14 +99,34 @@ namespace PPTimer.Core
                         .Where(kv => !ReservedArgs.Contains(kv.Key, StringComparer.OrdinalIgnoreCase))
                         .Select(kv => new KeyValuePair<string, object>(kv.Key, kv.Value)));
                 case "togglesetting":
-                    // Flipped against the add-in's own value, so two quick presses always cancel out.
+                    // Flipped against PPTimer's own value, so two quick presses always cancel out.
                     return args.TryGetValue("key", out var key)
                         ? settings.Toggle(key)
                         : $"Give the on/off setting to flip as 'key' ({string.Join(", ", settings.Current.ToggleKeys)})";
+                case "layout":
+                {
+                    // name=Keynote selects; step=1 / step=-1 cycles (one Companion button for all layouts).
+                    if (args.TryGetValue("step", out var stepText) && TryParseNumber(stepText, out var step) && step != 0)
+                        return settings.Mutate(s => { s.StepLayout(Math.Sign(step)); return null; });
+                    var name = Arg(args, "name") ?? Arg(args, "layout");
+                    return name == null
+                        ? $"Give the layout as 'name' ({string.Join(", ", settings.Current.LayoutNames)}), or 'step' (1 = next, -1 = previous)"
+                        : settings.Mutate(s => s.SelectLayout(name));
+                }
+                case "savelayout":
+                    // Saves the current target, position and look under a new name (or over an existing one).
+                    return settings.Mutate(s => s.SaveLayoutAs(Arg(args, "name")));
+                case "deletelayout":
+                    return settings.Mutate(s => s.DeleteLayout(Arg(args, "name") ?? s.ActiveLayout.Name));
+                case "renamelayout":
+                    return settings.Mutate(s => s.RenameLayout(Arg(args, "name") ?? s.ActiveLayout.Name, Arg(args, "to")));
                 default:
                     return $"Unknown command '{cmd}'. Commands: {string.Join(", ", Names)}";
             }
         }
+
+        static string Arg(IDictionary<string, string> args, string key) =>
+            args.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v.Trim() : null;
 
         /// <summary>Reads a duration from <c>seconds</c>, <c>minutes</c> or <c>time</c> ("90", "5:00", "1:05:00", "-1:00").</summary>
         static bool TryGetDuration(IDictionary<string, string> args, out long ms, out string error)

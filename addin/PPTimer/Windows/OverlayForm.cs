@@ -10,27 +10,16 @@ using static PPTimer.Windows.NativeMethods;
 namespace PPTimer.Windows
 {
     /// <summary>
-    /// Borderless countdown window owned by the presenter view window: it always sits above
-    /// that window (and only that window), never takes focus, and by default lets clicks through.
-    /// Drawn with UpdateLayeredWindow (per-pixel alpha), so the background can be fully transparent.
+    /// A borderless, always-on-top window that never takes focus (so the clicker and arrow keys still go to
+    /// PowerPoint) and by default lets clicks through. Base of the timer and the blackout backdrop.
     /// </summary>
-    internal sealed class OverlayForm : Form
+    internal abstract class TopmostForm : Form
     {
-        static readonly Color Amber = Color.FromArgb(255, 176, 0);
-        static readonly Color Red = Color.FromArgb(235, 45, 45);
-        static readonly Color SolidBack = Color.FromArgb(24, 24, 24);
-        static readonly FontFamily Family = LoadFamily();
-
-        readonly IntPtr ownerHwnd;
         readonly bool clickThrough;
-        string renderKey;
-        bool loggedFailure;
 
-        public OverlayForm(IntPtr ownerHwnd, bool clickThrough)
+        protected TopmostForm(bool clickThrough)
         {
-            this.ownerHwnd = ownerHwnd;
             this.clickThrough = clickThrough;
-
             Text = "PPTimer";
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
@@ -46,11 +35,9 @@ namespace PPTimer.Windows
             get
             {
                 var cp = base.CreateParams;
-                cp.ExStyle |= WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED;
+                cp.ExStyle |= WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED | WS_EX_TOPMOST;
+                // Click-through needs both WS_EX_LAYERED and WS_EX_TRANSPARENT.
                 if (clickThrough) cp.ExStyle |= WS_EX_TRANSPARENT;
-                // For a top-level window the "parent" is the owner: keeps us above the presenter view,
-                // hides us when it minimises, and destroys us with it.
-                cp.Parent = ownerHwnd;
                 return cp;
             }
         }
@@ -63,6 +50,44 @@ namespace PPTimer.Windows
                 return;
             }
             base.WndProc(ref m);
+        }
+
+        /// <summary>Back on top of the topmost windows (e.g. a PowerPoint slide show that was just clicked), without activating.</summary>
+        public void BringToTop() =>
+            SetWindowPos(Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    }
+
+    /// <summary>Plain black, behind the timer, for layouts with "blackout" (a fullscreen timer on a screen).</summary>
+    internal sealed class BackdropForm : TopmostForm
+    {
+        public BackdropForm(bool clickThrough) : base(clickThrough)
+        {
+            BackColor = Color.Black;
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            // A layered window stays invisible until it has content; this one is simply opaque.
+            SetLayeredWindowAttributes(Handle, 0, 255, LWA_ALPHA);
+        }
+    }
+
+    /// <summary>
+    /// The countdown, drawn with UpdateLayeredWindow (per-pixel alpha), so the background can be fully transparent.
+    /// </summary>
+    internal sealed class OverlayForm : TopmostForm
+    {
+        static readonly Color Amber = Color.FromArgb(255, 176, 0);
+        static readonly Color Red = Color.FromArgb(235, 45, 45);
+        static readonly Color SolidBack = Color.FromArgb(24, 24, 24);
+        static readonly FontFamily Family = LoadFamily();
+
+        string renderKey;
+        bool loggedFailure;
+
+        public OverlayForm(bool clickThrough) : base(clickThrough)
+        {
         }
 
         // Layered windows updated with UpdateLayeredWindow don't use WM_PAINT.

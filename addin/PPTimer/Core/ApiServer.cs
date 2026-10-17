@@ -36,11 +36,13 @@ namespace PPTimer.Core
         readonly CancellationTokenSource cts = new CancellationTokenSource();
         readonly List<WsClient> clients = new List<WsClient>();
         readonly ManualResetEventSlim changed = new ManualResetEventSlim(false);
+        readonly string platform;
         HttpListener listener;
         Thread broadcaster;
 
-        public ApiServer(TimerModel timer, SettingsStore settings, Func<object> diagnostics = null)
+        public ApiServer(TimerModel timer, SettingsStore settings, Func<object> diagnostics = null, string platform = "Windows")
         {
+            this.platform = platform;
             this.timer = timer;
             this.settings = settings;
             this.diagnostics = diagnostics;
@@ -222,7 +224,7 @@ namespace PPTimer.Core
                     }
                     Log.Info($"HTTP {cmd} {FormatArgs(args)} from {RemoteOf(req)}");
                     NotifyChanged();
-                    var body = cmd == "settings" || cmd == "togglesetting" ? SettingsMessage() : StateMessage(timer.Snapshot());
+                    var body = Commands.RepliesWithSettings(cmd) ? SettingsMessage() : StateMessage(timer.Snapshot());
                     body["ok"] = true;
                     WriteJson(res, 200, body);
                     return;
@@ -456,6 +458,7 @@ namespace PPTimer.Core
             ["type"] = "hello",
             ["app"] = "PPTimer",
             ["version"] = Version,
+            ["platform"] = platform,
             ["lanAccess"] = LanAccess,
             ["commands"] = Commands.Names,
             ["settings"] = settings.Current.ToDictionary(includeSecrets: false),

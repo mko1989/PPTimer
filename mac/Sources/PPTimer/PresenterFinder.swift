@@ -25,7 +25,7 @@ final class PresenterFinder {
     private let queue = DispatchQueue(label: "pptimer.finder", qos: .userInitiated)
     private let consentQueue = DispatchQueue(label: "pptimer.consent")
     private var source: DispatchSourceTimer?
-    private var last: PresenterTarget?
+    private var last: [PresenterTarget] = []
     private var bundleIDs: [pid_t: String] = [:]
     private var consentAskedFor: pid_t = 0
     private var powerPointConsent: OSStatus?
@@ -33,8 +33,8 @@ final class PresenterFinder {
     private var lastLoggedConsent: OSStatus? // only touched on consentQueue
     private var lastAppleEventError: Int?
 
-    /// Called on the main thread when the target appears, moves or disappears.
-    var onChange: ((PresenterTarget?) -> Void)?
+    /// Called on the main thread when a presenter view appears, moves or disappears (Keynote first, then PowerPoint).
+    var onChange: (([PresenterTarget]) -> Void)?
 
     /// Main-thread copy of the PowerPoint Automation consent (nil = not checked yet).
     private(set) var powerPointConsentStatus: OSStatus?
@@ -48,15 +48,16 @@ final class PresenterFinder {
     }
 
     private func poll() {
-        let target = scan()
-        guard target != last else { return }
-        if let target {
+        let found = scan()
+        guard found != last else { return }
+        for target in found where !last.contains(target) {
             Log.info("\(target.app) presenter view found at \(Self.describe(target.frame)) on display \(target.displayID)")
-        } else if let last {
-            Log.info("\(last.app) presenter view gone")
         }
-        last = target
-        DispatchQueue.main.async { self.onChange?(target) }
+        for gone in last where !found.contains(where: { $0.app == gone.app }) {
+            Log.info("\(gone.app) presenter view gone")
+        }
+        last = found
+        DispatchQueue.main.async { self.onChange?(found) }
     }
 
     // ---- Scanning -----------------------------------------------------------------------------
@@ -70,7 +71,7 @@ final class PresenterFinder {
         var number: Int
     }
 
-    private func scan() -> PresenterTarget? {
+    private func scan() -> [PresenterTarget] {
         let displays = Self.displays()
         let windows = Self.windows(onScreenOnly: true)
 
@@ -82,18 +83,19 @@ final class PresenterFinder {
         }
 
         var powerPointRunning: pid_t = 0
-        var found: PresenterTarget?
-        for (pid, full) in fullByPid where found == nil {
+        var found: [PresenterTarget] = []
+        for (pid, full) in fullByPid {
             switch bundleID(pid) {
             case Self.keynoteBundleID:
-                found = keynotePresenter(full, displays)
+                if let t = keynotePresenter(full, displays) { found.append(t) }
             case Self.powerPointBundleID:
                 powerPointRunning = pid
-                found = powerPointPresenter(pid: pid, displays)
+                if let t = powerPointPresenter(pid: pid, displays) { found.append(t) }
             default:
                 break
             }
         }
+        found.sort { $0.app < $1.app } // stable order: Keynote, PowerPoint
         if powerPointRunning == 0, let pid = NSRunningApplication.runningApplications(withBundleIdentifier: Self.powerPointBundleID).first?.processIdentifier {
             powerPointRunning = pid
         }
@@ -273,7 +275,7 @@ final class PresenterFinder {
                     "bounds": Self.describe($0.bounds), "onScreen": $0.onScreen,
                 ] as [String: Any] },
                 "powerPointAutomation": self.powerPointConsent.map { $0 == noErr ? "allowed" : "status \($0)" } ?? "not checked",
-                "presenter": self.last.map { ["app": $0.app, "frame": Self.describe($0.frame), "display": Int($0.displayID)] as [String: Any] } ?? NSNull(),
+                "presenters": self.last.map { ["app": $0.app, "frame": Self.describe($0.frame), "display": Int($0.displayID)] as [String: Any] },
             ]
             completion(result)
         }

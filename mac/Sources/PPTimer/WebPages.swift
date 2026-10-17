@@ -1,6 +1,6 @@
 import Foundation
 
-/// The browser pages, shared with the Windows add-in (addin/PPTimer/Core/*.html). build.sh copies them
+/// The browser pages, shared with the Windows app (addin/PPTimer/Core/*.html). build.sh copies them
 /// into the app's Resources; `swift run` falls back to the source tree.
 enum WebPages {
     /// Control remote, served at "/".

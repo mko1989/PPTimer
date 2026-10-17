@@ -1,47 +1,71 @@
 import AppKit
 
-/// Main thread. Keeps a borderless, click-through panel over the configured rectangle of the presenter
-/// view, and hands it the latest timer state 10 times a second (30 while fading at zero).
+/// Main thread. Resolves the active layout's target (a presenter view, or a screen), keeps a borderless,
+/// click-through panel over the layout's rectangle of it (plus a black backdrop panel for blackout layouts),
+/// and hands it the latest timer state 10 times a second (30 while fading at zero).
 final class OverlayController {
     private static let tickInterval = 0.1
     private static let blinkTickInterval = 0.033    // ~30 fps while fading
     private static let blinkPeriod = 2.0            // one full fade out + fade in
     private static let blinkMinLevel = 0.12
+    private static let screensRefreshInterval = 3.0
 
     private let timer: TimerModel
     private let settings: SettingsStore
     private let panel: NSPanel
+    private let backdrop: NSPanel
     private let view = OverlayView()
     private var tick: Timer?
     private var tickInterval = 0.0
     private var expiredSince: TimeInterval?
+    private var presenters: [PresenterTarget] = []
+    private var screens: [ScreenEntry] = []
+    private var screensAt: TimeInterval = -.infinity
+    private var screensSummary = ""
+    private var lastLayout = ""
+    private var lastTarget: String??
 
-    private(set) var target: PresenterTarget?
+    /// What the timer is placed on ("Keynote presenter display", "Screen 2 · DELL U2720"), nil when not found.
+    private(set) var targetDescription: String?
 
     init(timer: TimerModel, settings: SettingsStore) {
         self.timer = timer
         self.settings = settings
 
-        panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 80),
-                        styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = false
-        panel.hidesOnDeactivate = false
-        panel.isReleasedWhenClosed = false
-        panel.becomesKeyOnlyIfNeeded = true
-        panel.ignoresMouseEvents = settings.current.clickThrough
-        // Above Keynote's slideshow windows (layer 25) and anything a presenter app might float.
-        panel.level = .screenSaver
-        // Follow the presenter view into full-screen spaces and onto every space.
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        panel = Self.makePanel(level: .screenSaver, clickThrough: settings.current.clickThrough)
         panel.contentView = view
+        // Black, just below the timer; still above Keynote's slideshow windows (layer 25).
+        backdrop = Self.makePanel(level: NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue - 1), clickThrough: settings.current.clickThrough)
+        backdrop.isOpaque = true
+        backdrop.backgroundColor = .black
 
+        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.screensAt = -.infinity
+            self?.update()
+        }
         schedule(Self.tickInterval)
     }
 
-    func setTarget(_ target: PresenterTarget?) {
-        self.target = target
+    private static func makePanel(level: NSWindow.Level, clickThrough: Bool) -> NSPanel {
+        let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 80),
+                        styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        p.isOpaque = false
+        p.backgroundColor = .clear
+        p.hasShadow = false
+        p.hidesOnDeactivate = false
+        p.isReleasedWhenClosed = false
+        p.becomesKeyOnlyIfNeeded = true
+        p.ignoresMouseEvents = clickThrough
+        // Above Keynote's slideshow windows (layer 25) and anything a presenter app might float.
+        p.level = level
+        // Follow the presenter view into full-screen spaces and onto every space.
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        return p
+    }
+
+    /// The presenter views PresenterFinder currently sees.
+    func setPresenters(_ list: [PresenterTarget]) {
+        presenters = list
         update()
     }
 
@@ -56,12 +80,28 @@ final class OverlayController {
 
     private func update() {
         let cfg = settings.current
+        let layout = cfg.activeLayout
+        refreshScreens()
+        if layout.name != lastLayout {
+            lastLayout = layout.name
+            Log.info("Layout '\(layout.name)': \(Json.serialize(layout.toDictionary(includeName: false)))")
+        }
+
+        let (target, missing) = resolve(layout)
+        targetDescription = target?.description
+        timer.setTarget(target?.description, width: Int(target?.frame.width ?? 0), height: Int(target?.frame.height ?? 0))
+        if lastTarget != .some(target?.description) {
+            lastTarget = .some(target?.description)
+            if let target {
+                Log.info("Timer target: \(target.description) at \(Int(target.frame.minX)),\(Int(target.frame.minY)) \(Int(target.frame.width))x\(Int(target.frame.height))")
+            } else {
+                Log.info("Timer target: none (\(missing))")
+            }
+        }
         guard let target else {
-            timer.setPresenterView(false, width: 0, height: 0)
             hide()
             return
         }
-        timer.setPresenterView(true, width: Int(target.frame.width), height: Int(target.frame.height))
 
         let snap = timer.snapshot()
         let level = blinkLevel(snap, cfg)
@@ -70,27 +110,74 @@ final class OverlayController {
             return
         }
 
-        let frame = Self.computeFrame(target.frame, cfg)
+        if layout.blackout {
+            let area = Self.appKitRect(target.frame)
+            if backdrop.frame != area { backdrop.setFrame(area, display: false) }
+            if !backdrop.isVisible { backdrop.orderFrontRegardless() }
+        } else if backdrop.isVisible {
+            backdrop.orderOut(nil)
+        }
+
+        let frame = Self.appKitRect(Self.timerRect(target.frame, layout))
         if panel.frame != frame { panel.setFrame(frame, display: false) }
-        panel.alphaValue = CGFloat(max(0.2, min(1, cfg.opacity)))
+        panel.alphaValue = CGFloat(max(0.2, min(1, layout.opacity)))
         view.update(snap, cfg, level)
         if !panel.isVisible { panel.orderFrontRegardless() }
     }
 
+    /// The area the layout puts the timer on, or why there is none.
+    private func resolve(_ layout: Layout) -> (target: (description: String, frame: CGRect)?, missing: String) {
+        if layout.isScreen {
+            guard let screen = Screens.resolve(screens, layout.screen) else {
+                return (nil, "no screen matches '\(layout.screen)' (\(screens.count) connected)")
+            }
+            return (("Screen \(screen.description.id) · \(screen.description.name)", screen.frame), "")
+        }
+        let match = presenters.first { p in
+            switch layout.target {
+            case "powerpoint": return p.app == "PowerPoint"
+            case "keynote": return p.app == "Keynote"
+            default: return true
+            }
+        }
+        guard let match else {
+            let app = layout.target == "powerpoint" ? "PowerPoint" : layout.target == "keynote" ? "Keynote" : "Keynote or PowerPoint"
+            return (nil, "no \(app) presenter view")
+        }
+        return ((match.app == "Keynote" ? "Keynote presenter display" : "PowerPoint presenter view", match.frame), "")
+    }
+
+    private func refreshScreens() {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - screensAt >= Self.screensRefreshInterval else { return }
+        screensAt = now
+        screens = Screens.list()
+        let summary = Screens.summary(screens)
+        guard summary != screensSummary else { return }
+        screensSummary = summary
+        Log.info("Screens: \(summary)")
+        timer.setScreens(screens.map(\.description))
+    }
+
     private func hide() {
         if panel.isVisible { panel.orderOut(nil) }
+        if backdrop.isVisible { backdrop.orderOut(nil) }
         schedule(Self.tickInterval)
     }
 
-    /// The configured rectangle (percentages of the presenter view), kept inside it, in AppKit
-    /// screen coordinates (origin bottom-left of the main display).
-    private static func computeFrame(_ host: CGRect, _ cfg: Settings) -> NSRect {
-        let w = clamp((host.width * cfg.widthPercent / 100).rounded(), 8, host.width)
-        let h = clamp((host.height * cfg.heightPercent / 100).rounded(), 8, host.height)
-        let x = clamp((host.width * cfg.xPercent / 100).rounded(), 0, host.width - w)
-        let y = clamp((host.height * cfg.yPercent / 100).rounded(), 0, host.height - h)
+    /// The layout's rectangle (percentages of the target area), kept inside it, in global display coordinates.
+    private static func timerRect(_ host: CGRect, _ layout: Layout) -> CGRect {
+        let w = clamp((host.width * layout.widthPercent / 100).rounded(), 8, host.width)
+        let h = clamp((host.height * layout.heightPercent / 100).rounded(), 8, host.height)
+        let x = clamp((host.width * layout.xPercent / 100).rounded(), 0, host.width - w)
+        let y = clamp((host.height * layout.yPercent / 100).rounded(), 0, host.height - h)
+        return CGRect(x: host.minX + x, y: host.minY + y, width: w, height: h)
+    }
+
+    /// Global display coordinates (y down from the main display's top) to AppKit screen coordinates (y up).
+    private static func appKitRect(_ r: CGRect) -> NSRect {
         let mainHeight = CGDisplayBounds(CGMainDisplayID()).height
-        return NSRect(x: host.minX + x, y: mainHeight - (host.minY + y + h), width: w, height: h)
+        return NSRect(x: r.minX, y: mainHeight - r.maxY, width: r.width, height: r.height)
     }
 
     private static func clamp(_ v: CGFloat, _ lo: CGFloat, _ hi: CGFloat) -> CGFloat { max(lo, min(hi, v)) }

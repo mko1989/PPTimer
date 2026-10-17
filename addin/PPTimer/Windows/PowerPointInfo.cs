@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
 using PPTimer.Core;
+using static PPTimer.Windows.NativeMethods;
 
 namespace PPTimer.Windows
 {
@@ -21,42 +24,172 @@ namespace PPTimer.Windows
     }
 
     /// <summary>
-    /// Late-bound (IDispatch) reads of PowerPoint's object model, so the add-in needs no interop assemblies.
-    /// Call on PowerPoint's UI thread only. Never throws: failures return null and are logged once.
+    /// Reads PowerPoint's running slide shows from outside PowerPoint, on a background thread so a busy or hung
+    /// PowerPoint never freezes the overlay. Each read gets the Application object (Running Object Table, or through
+    /// PowerPoint's window), reads late-bound (no interop assemblies) and releases everything straight away, so
+    /// PPTimer never keeps PowerPoint running after the user closes it.
     /// </summary>
     internal sealed class PowerPointInfo : IDisposable
     {
-        object app;
-        string lastError;
+        const int PollMs = 500;
+        const uint MK_E_UNAVAILABLE = 0x800401E3;
+        static Guid IID_IDispatch = new Guid("00020400-0000-0000-C000-000000000046");
 
-        public PowerPointInfo(object application)
+        readonly Thread worker;
+        readonly ManualResetEventSlim stop = new ManualResetEventSlim(false);
+        volatile bool watching;
+        volatile List<SlideShowInfo> shows = new List<SlideShowInfo>();
+        string lastError;
+        string lastSource;
+
+        public PowerPointInfo()
         {
-            app = application;
+            worker = new Thread(Run) { IsBackground = true, Name = "PPTimer PowerPoint reader" };
+            worker.Start();
         }
 
-        public bool Available => app != null;
+        /// <summary>"16.0 build 18227" once PowerPoint has been read, else null.</summary>
+        public string Version { get; private set; }
 
-        /// <summary>"16.0 build 18227" or null.</summary>
-        public string Version()
+        /// <summary>Whether the last read worked (false: cannot tell the audience window apart).</summary>
+        public bool Available { get; private set; }
+
+        /// <summary>
+        /// Set by the overlay while PowerPoint shows slide show or presenter windows; the object model is only read
+        /// then. Otherwise there is no slide show, and PowerPoint is left alone.
+        /// </summary>
+        public void Watch(bool value)
         {
-            if (app == null) return null;
+            if (value == watching) return;
+            watching = value;
+            if (!value) shows = new List<SlideShowInfo>();
+        }
+
+        /// <summary>Running slide shows from the last read, or null when the object model could not be read (unknown, not "none").</summary>
+        public List<SlideShowInfo> SlideShows() => shows;
+
+        void Run()
+        {
+            while (!stop.Wait(PollMs))
+            {
+                if (!watching) continue;
+                var result = Read();
+                if (watching) shows = result;
+            }
+        }
+
+        List<SlideShowInfo> Read()
+        {
+            object app = null;
             try
             {
-                var version = Get(app, "Version");
-                var build = Get(app, "Build");
-                return $"{version} build {build}";
+                app = Application();
+                if (app == null)
+                {
+                    Available = false;
+                    return null;
+                }
+                if (Version == null)
+                {
+                    Version = $"{Get(app, "Version")} build {Get(app, "Build")}";
+                    Log.Info($"Reading PowerPoint {Version}'s slide shows ({lastSource})");
+                }
+                var list = SlideShows(app);
+                Available = true;
+                lastError = null;
+                return list;
             }
             catch (Exception ex)
             {
-                Fail("Application.Version", ex);
+                Fail("SlideShowWindows", ex);
+                Available = false;
                 return null;
+            }
+            finally
+            {
+                Release(app, final: true);
             }
         }
 
-        /// <summary>Running slide shows, or null when the object model could not be read (unknown, not "none").</summary>
-        public List<SlideShowInfo> SlideShows()
+        /// <summary>
+        /// PowerPoint registers in the Running Object Table only after it has lost focus once, so a slide show started
+        /// straight away may not be there yet; its document window hands out the object model too.
+        /// </summary>
+        object Application()
         {
-            if (app == null) return null;
+            try
+            {
+                var app = Marshal.GetActiveObject("PowerPoint.Application");
+                Source("Running Object Table");
+                return app;
+            }
+            catch (COMException ex) when ((uint)ex.HResult == MK_E_UNAVAILABLE)
+            {
+                // Not registered (yet); try the window.
+            }
+
+            var pane = FindDocumentPane();
+            if (pane == IntPtr.Zero)
+            {
+                Fail("Application", new Exception("PowerPoint is not in the Running Object Table and has no document window"));
+                return null;
+            }
+            object window = null;
+            try
+            {
+                var iid = IID_IDispatch;
+                var hr = AccessibleObjectFromWindow(pane, OBJID_NATIVEOM, ref iid, out window);
+                if (hr != 0 || window == null) throw new COMException($"AccessibleObjectFromWindow failed (0x{hr:X8})", hr);
+                var app = Get(window, "Application");
+                Source("document window");
+                return app;
+            }
+            catch (Exception ex)
+            {
+                Fail("Application (through the document window)", ex);
+                return null;
+            }
+            finally
+            {
+                Release(window, final: false);
+            }
+        }
+
+        void Source(string source)
+        {
+            if (source == lastSource) return;
+            if (lastSource != null) Log.Info($"Reading PowerPoint's slide shows through its {source} now");
+            lastSource = source;
+        }
+
+        /// <summary>PowerPoint's document pane ("mdiClass" inside the main PPTFrameClass window).</summary>
+        static IntPtr FindDocumentPane()
+        {
+            var pids = PresenterWindowFinder.PowerPointProcessIds();
+            var pane = IntPtr.Zero;
+            var sb = new StringBuilder(64);
+            EnumWindows((top, _) =>
+            {
+                GetWindowThreadProcessId(top, out var pid);
+                if (!pids.Contains(pid)) return true;
+                sb.Clear();
+                GetClassName(top, sb, sb.Capacity);
+                if (sb.ToString() != PresenterWindowFinder.MainWindowClass) return true;
+                EnumChildWindows(top, (child, __) =>
+                {
+                    sb.Clear();
+                    GetClassName(child, sb, sb.Capacity);
+                    if (sb.ToString() != "mdiClass") return true;
+                    pane = child;
+                    return false;
+                }, IntPtr.Zero);
+                return pane == IntPtr.Zero;
+            }, IntPtr.Zero);
+            return pane;
+        }
+
+        static List<SlideShowInfo> SlideShows(object app)
+        {
             object windows = null;
             try
             {
@@ -65,21 +198,15 @@ namespace PPTimer.Windows
                 var list = new List<SlideShowInfo>(count);
                 for (var i = 1; i <= count; i++)
                     list.Add(ReadSlideShow(windows, i));
-                lastError = null;
                 return list;
-            }
-            catch (Exception ex)
-            {
-                Fail("SlideShowWindows", ex);
-                return null;
             }
             finally
             {
-                Release(windows);
+                Release(windows, final: false);
             }
         }
 
-        SlideShowInfo ReadSlideShow(object windows, int index)
+        static SlideShowInfo ReadSlideShow(object windows, int index)
         {
             object window = null, presentation = null, showSettings = null, view = null;
             try
@@ -104,10 +231,10 @@ namespace PPTimer.Windows
             }
             finally
             {
-                Release(view);
-                Release(showSettings);
-                Release(presentation);
-                Release(window);
+                Release(view, false);
+                Release(showSettings, false);
+                Release(presentation, false);
+                Release(window, false);
             }
         }
 
@@ -116,7 +243,7 @@ namespace PPTimer.Windows
             var message = $"{what}: {(ex is TargetInvocationException t && t.InnerException != null ? t.InnerException.Message : ex.Message)}";
             if (message == lastError) return;
             lastError = message;
-            Log.Warn($"PowerPoint object model read failed ({message})");
+            Log.Warn($"PowerPoint object model read failed ({message}). Detection continues by window class and title only.");
         }
 
         static object Get(object target, string name) =>
@@ -125,15 +252,17 @@ namespace PPTimer.Windows
         static object Call(object target, string name, params object[] args) =>
             target.GetType().InvokeMember(name, BindingFlags.InvokeMethod, null, target, args);
 
-        static void Release(object com)
+        static void Release(object com, bool final)
         {
-            if (com != null && Marshal.IsComObject(com)) Marshal.ReleaseComObject(com);
+            if (com == null || !Marshal.IsComObject(com)) return;
+            if (final) Marshal.FinalReleaseComObject(com);
+            else Marshal.ReleaseComObject(com);
         }
 
         public void Dispose()
         {
-            // The Application reference is PowerPoint's own; just drop it.
-            app = null;
+            stop.Set();
+            worker.Join(1000);
         }
     }
 }

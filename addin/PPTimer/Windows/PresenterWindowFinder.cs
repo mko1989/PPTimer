@@ -8,7 +8,7 @@ using static PPTimer.Windows.NativeMethods;
 
 namespace PPTimer.Windows
 {
-    /// <summary>A window of this process, read once (for detection, the log and /api/debug/windows).</summary>
+    /// <summary>A window of PowerPoint's, read once (for detection, the log and /api/debug/windows).</summary>
     internal sealed class WindowInfo
     {
         public IntPtr Hwnd;
@@ -86,7 +86,7 @@ namespace PPTimer.Windows
     /// <summary>Which window the overlay should sit on, and why.</summary>
     internal sealed class Detection
     {
-        /// <summary>Top-level window that owns the overlay (keeps it above the presenter view, minimises with it).</summary>
+        /// <summary>The presenter view's top-level window (the overlay hides while it is minimised).</summary>
         public IntPtr Owner;
         /// <summary>Window whose client area is the presenter view; the same as <see cref="Owner"/> unless it is a child window.</summary>
         public IntPtr Target;
@@ -98,7 +98,7 @@ namespace PPTimer.Windows
     }
 
     /// <summary>
-    /// Finds PowerPoint's presenter view among this process's windows. Rules, strongest first:
+    /// Finds PowerPoint's presenter view among PowerPoint's windows. Rules, strongest first:
     /// 1. a visible top-level window whose class is in presenterWindowClasses (in the order listed),
     /// 2. a visible child window with such a class (newer PowerPoint builds may nest it),
     /// 3. a visible top-level window whose title contains one of presenterWindowTitles,
@@ -113,19 +113,46 @@ namespace PPTimer.Windows
         const int MinWidth = 320, MinHeight = 200;
         const int MaxChildClasses = 30;
 
-        static readonly uint ProcessId = (uint)Process.GetCurrentProcess().Id;
+        const int ProcessCacheMs = 2000;
+        static readonly object ProcessGate = new object();
+        static readonly Stopwatch ProcessClock = Stopwatch.StartNew();
+        static HashSet<uint> processIds = new HashSet<uint>();
+        static long processIdsAt = -ProcessCacheMs;
 
-        /// <summary>Top-level windows of this process, in z-order, minus <paramref name="exclude"/> (our own overlay).</summary>
-        public static List<WindowInfo> TopLevelWindows(bool visibleOnly, IntPtr exclude)
+        /// <summary>Process ids of the running POWERPNT.EXE (usually one), refreshed every 2 s. Thread-safe.</summary>
+        public static HashSet<uint> PowerPointProcessIds()
         {
+            lock (ProcessGate)
+            {
+                if (ProcessClock.ElapsedMilliseconds - processIdsAt < ProcessCacheMs) return processIds;
+                var ids = new HashSet<uint>();
+                foreach (var p in Process.GetProcessesByName("POWERPNT"))
+                {
+                    ids.Add((uint)p.Id);
+                    p.Dispose();
+                }
+                processIds = ids;
+                processIdsAt = ProcessClock.ElapsedMilliseconds;
+                return ids;
+            }
+        }
+
+        /// <summary>PowerPoint's top-level windows, in z-order.</summary>
+        public static List<WindowInfo> TopLevelWindows(bool visibleOnly)
+        {
+            var pids = PowerPointProcessIds();
             var handles = new List<IntPtr>();
+            if (pids.Count == 0) return new List<WindowInfo>();
             EnumWindows((hWnd, _) =>
             {
-                if (hWnd != exclude && BelongsToUs(hWnd) && (!visibleOnly || IsWindowVisible(hWnd))) handles.Add(hWnd);
+                if (BelongsTo(pids, hWnd) && (!visibleOnly || IsWindowVisible(hWnd))) handles.Add(hWnd);
                 return true;
             }, IntPtr.Zero);
             return handles.Select(WindowInfo.Read).ToList();
         }
+
+        /// <summary>Whether a window belongs to PowerPoint.</summary>
+        public static bool IsPowerPointWindow(IntPtr hWnd) => BelongsTo(PowerPointProcessIds(), hWnd);
 
         public static Detection Detect(Settings cfg, IList<WindowInfo> windows, ISet<IntPtr> audience, bool slideShowRunning)
         {
@@ -201,9 +228,9 @@ namespace PPTimer.Windows
             return sb.Length == 0 ? " (no visible windows)" : sb.ToString();
         }
 
-        /// <summary>All top-level windows of this process (hidden too), for GET /api/debug/windows.</summary>
+        /// <summary>All of PowerPoint's top-level windows (hidden too), for GET /api/debug/windows.</summary>
         public static List<object> DescribeProcessWindows(ISet<IntPtr> audience) =>
-            TopLevelWindows(visibleOnly: false, IntPtr.Zero).Select(w =>
+            TopLevelWindows(visibleOnly: false).Select(w =>
             {
                 var d = w.ToDictionary(audience);
                 if (w.Visible) d["childClasses"] = ChildClassSummary(w.Hwnd);
@@ -237,10 +264,10 @@ namespace PPTimer.Windows
         static Detection Found(WindowInfo w, IntPtr target, string rule) =>
             new Detection { Owner = w.Hwnd, Target = target, Rule = rule, Window = w };
 
-        static bool BelongsToUs(IntPtr hWnd)
+        static bool BelongsTo(HashSet<uint> pids, IntPtr hWnd)
         {
             GetWindowThreadProcessId(hWnd, out var pid);
-            return pid == ProcessId;
+            return pids.Contains(pid);
         }
     }
 }

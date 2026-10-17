@@ -1,19 +1,19 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    PowerPoint COM add-in (same loading mechanism VSTO uses underneath, minus the VSTO runtime),
-    so it builds with the plain .NET SDK on macOS or Windows:  dotnet build -c Release
+    PPTimer.exe: a notification area app that draws the countdown over PowerPoint's presenter view or a screen.
+    .NET Framework 4.8 (part of Windows 10/11, nothing to install). Builds with the plain .NET SDK on macOS or
+    Windows:  dotnet build -c Release
   -->
   <PropertyGroup>
+    <OutputType>WinExe</OutputType>
     <TargetFramework>net48</TargetFramework>
     <AssemblyName>PPTimer</AssemblyName>
     <RootNamespace>PPTimer</RootNamespace>
     <LangVersion>latest</LangVersion>
     <PlatformTarget>AnyCPU</PlatformTarget>
-    <Version>1.0.3</Version>
-    <!-- Kept fixed: install.ps1 writes it into the COM registration. -->
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.3.0</FileVersion>
+    <Prefer32Bit>false</Prefer32Bit>
+    <Version>1.1.0</Version>
     <DebugType>full</DebugType>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
@@ -29,10 +29,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <AssemblyAttribute Include="System.Runtime.InteropServices.ComVisibleAttribute">
-      <_Parameter1>false</_Parameter1>
-      <_Parameter1_IsLiteral>true</_Parameter1_IsLiteral>
-    </AssemblyAttribute>
+    <!-- Left over from the PowerPoint add-in (1.0.x); PPTimer is a standalone app since 1.1.0. Safe to delete. -->
+    <Compile Remove="Windows/Connect.cs;Windows/IDTExtensibility2.cs;Windows/AddinHost.cs" />
   </ItemGroup>
 
   <ItemGroup>

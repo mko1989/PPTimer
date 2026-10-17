@@ -1,13 +1,13 @@
 import Foundation
 import Network
 
-/// One TCP listener serving (same API as the Windows add-in):
+/// One TCP listener serving (same API as the Windows app):
 ///   GET  /                  browser remote
 ///   GET  /display           timer only, black background (stage / confidence monitor)
 ///   GET  /api/state         current state
 ///   GET|POST /api/{cmd}     commands (args via query string, JSON body or form body)
 ///   GET|POST /api/settings  read / change runtime settings
-///   GET  /api/debug/windows Keynote / PowerPoint windows and displays, as PPTimer sees them
+///   GET  /api/debug/windows Keynote / PowerPoint windows, displays and the active layout, as PPTimer sees them
 ///   GET  /ws                WebSocket: send {"cmd": ...}, receive pushed "state" messages
 /// Everything runs on `queue`, including every connection.
 final class ApiServer {
@@ -192,7 +192,7 @@ final class ApiServer {
         }
         Log.info("HTTP \(cmd) \(format(args)) from \(client.remote)")
         notifyChanged()
-        var body = cmd == "settings" || cmd == "togglesetting" ? settingsMessage() : stateMessage(timer.snapshot())
+        var body = Commands.repliesWithSettings(cmd) ? settingsMessage() : stateMessage(timer.snapshot())
         body["ok"] = true
         respondJson(client, 200, body)
     }

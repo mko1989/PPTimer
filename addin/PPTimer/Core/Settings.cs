@@ -14,14 +14,16 @@ namespace PPTimer.Core
     /// </summary>
     public sealed class Settings
     {
-        /// <summary>Bumped when defaults change meaning; older files have the affected keys reset.</summary>
-        public const int CurrentConfigVersion = 2;
+        /// <summary>Bumped when defaults change meaning; older files have the affected keys reset.
+        /// 3: position and look moved into "layouts".</summary>
+        public const int CurrentConfigVersion = 3;
 
-        /// <summary>Keys that can be changed at runtime over the API. Everything else is file-only.</summary>
+        /// <summary>Keys that can be changed at runtime over the API. Everything else is file-only.
+        /// "layout" selects a layout by name; the layout keys change the active layout.</summary>
         public static readonly string[] RuntimeKeys =
         {
-            "xPercent", "yPercent", "widthPercent", "heightPercent", "opacity",
-            "transparentBackground", "textOutline",
+            "layout", "target", "screen", "xPercent", "yPercent", "widthPercent", "heightPercent", "opacity",
+            "transparentBackground", "textOutline", "blackout",
             "warnEnabled", "warnSeconds", "criticalEnabled", "criticalSeconds",
             "blinkAtZero", "countUp", "showMinus", "soundEnabled", "soundFile",
         };
@@ -34,7 +36,7 @@ namespace PPTimer.Core
 
         public int ConfigVersion { get; private set; } = CurrentConfigVersion;
 
-        // Network (file-only, restart PowerPoint after changing)
+        // Network (file-only, restart PPTimer after changing)
         public int Port { get; private set; } = 9595;
         public string ApiToken { get; private set; } = "";
 
@@ -44,16 +46,18 @@ namespace PPTimer.Core
         public string[] PresenterWindowTitles { get; private set; } = { "Presenter View" };
         public bool ClickThrough { get; private set; } = true;
 
-        // Overlay rectangle, in % of the presenter view's client area (top-left corner + size)
-        public double XPercent { get; private set; } = 22;
-        public double YPercent { get; private set; } = 74;
-        public double WidthPercent { get; private set; } = 16;
-        public double HeightPercent { get; private set; } = 9;
+        // Layout presets: target, overlay rectangle (in % of the target) and look. Never empty.
+        public Layout[] Layouts { get; private set; } = Layout.Defaults();
+        public int ActiveLayoutIndex { get; private set; }
+        public Layout ActiveLayout => Layouts[ActiveLayoutIndex];
 
-        // Look
-        public double Opacity { get; private set; } = 1;
-        public bool TransparentBackground { get; private set; } = true;
-        public bool TextOutline { get; private set; } = true;
+        public double XPercent => ActiveLayout.XPercent;
+        public double YPercent => ActiveLayout.YPercent;
+        public double WidthPercent => ActiveLayout.WidthPercent;
+        public double HeightPercent => ActiveLayout.HeightPercent;
+        public double Opacity => ActiveLayout.Opacity;
+        public bool TransparentBackground => ActiveLayout.TransparentBackground;
+        public bool TextOutline => ActiveLayout.TextOutline;
 
         // Colour thresholds
         public bool WarnEnabled { get; private set; } = true;
@@ -70,7 +74,12 @@ namespace PPTimer.Core
 
         public int DefaultDurationSeconds { get; private set; } = 300;
 
-        public Settings Clone() => (Settings)MemberwiseClone();
+        public Settings Clone()
+        {
+            var c = (Settings)MemberwiseClone();
+            c.Layouts = Layouts.Select(l => l.Clone()).ToArray();
+            return c;
+        }
 
         /// <summary>The on/off runtime settings, which <c>togglesetting</c> can flip.</summary>
         public IEnumerable<string> ToggleKeys
@@ -82,7 +91,16 @@ namespace PPTimer.Core
             }
         }
 
+        /// <summary>For the API: the active layout's values also appear flat (xPercent, ...), as before layouts existed.</summary>
         public Dictionary<string, object> ToDictionary(bool includeSecrets)
+        {
+            var d = ToFileDictionary(includeSecrets);
+            foreach (var kv in ActiveLayout.ToDictionary(includeName: false)) d[kv.Key] = kv.Value;
+            return d;
+        }
+
+        /// <summary>What config.json holds: the layouts as a list, no flat copies.</summary>
+        public Dictionary<string, object> ToFileDictionary(bool includeSecrets = true)
         {
             var d = new Dictionary<string, object>
             {
@@ -91,13 +109,8 @@ namespace PPTimer.Core
                 ["presenterWindowClasses"] = PresenterWindowClasses,
                 ["presenterWindowTitles"] = PresenterWindowTitles,
                 ["clickThrough"] = ClickThrough,
-                ["xPercent"] = XPercent,
-                ["yPercent"] = YPercent,
-                ["widthPercent"] = WidthPercent,
-                ["heightPercent"] = HeightPercent,
-                ["opacity"] = Opacity,
-                ["transparentBackground"] = TransparentBackground,
-                ["textOutline"] = TextOutline,
+                ["layout"] = ActiveLayout.Name,
+                ["layouts"] = Layouts.Select(l => (object)l.ToDictionary()).ToList(),
                 ["warnEnabled"] = WarnEnabled,
                 ["warnSeconds"] = WarnSeconds,
                 ["criticalEnabled"] = CriticalEnabled,
@@ -126,13 +139,8 @@ namespace PPTimer.Core
                     case "presenterwindowclasses": PresenterWindowClasses = ToList(value); return null;
                     case "presenterwindowtitles": PresenterWindowTitles = ToList(value); return null;
                     case "clickthrough": ClickThrough = ToBool(value); return null;
-                    case "xpercent": XPercent = Range(ToDouble(value), 0, 100); return null;
-                    case "ypercent": YPercent = Range(ToDouble(value), 0, 100); return null;
-                    case "widthpercent": WidthPercent = Range(ToDouble(value), 2, 100); return null;
-                    case "heightpercent": HeightPercent = Range(ToDouble(value), 2, 100); return null;
-                    case "opacity": Opacity = Range(ToDouble(value), 0.2, 1); return null;
-                    case "transparentbackground": TransparentBackground = ToBool(value); return null;
-                    case "textoutline": TextOutline = ToBool(value); return null;
+                    case "layouts": return SetLayouts(value);
+                    case "layout": return SelectLayout(ToText(value));
                     case "warnenabled": WarnEnabled = ToBool(value); return null;
                     case "warnseconds": WarnSeconds = (int)Range(ToDouble(value), 0, 86400); return null;
                     case "criticalenabled": CriticalEnabled = ToBool(value); return null;
@@ -143,7 +151,13 @@ namespace PPTimer.Core
                     case "soundenabled": SoundEnabled = ToBool(value); return null;
                     case "soundfile": SoundFile = ToText(value).Trim().Trim('"'); return null;
                     case "defaultdurationseconds": DefaultDurationSeconds = (int)Range(ToDouble(value), 0, 360000); return null;
-                    default: return $"Unknown setting '{key}'";
+                    default:
+                        if (Layout.IsKey(key))
+                        {
+                            var error = ActiveLayout.Apply(key, value);
+                            return error == null ? null : error.StartsWith("Invalid", StringComparison.Ordinal) ? error : $"Invalid value for '{key}': {error}";
+                        }
+                        return $"Unknown setting '{key}'";
                 }
             }
             catch (Exception ex) when (ex is FormatException || ex is InvalidCastException || ex is ArgumentException)
@@ -152,12 +166,109 @@ namespace PPTimer.Core
             }
         }
 
+        // ---- Layouts ------------------------------------------------------------------------------
+
+        public IEnumerable<string> LayoutNames => Layouts.Select(l => l.Name);
+
+        int IndexOf(string name) =>
+            Array.FindIndex(Layouts, l => l.Name.Equals((name ?? "").Trim(), StringComparison.OrdinalIgnoreCase));
+
+        string UnknownLayout(string name) => $"No layout named '{name}' (layouts: {string.Join(", ", LayoutNames)})";
+
+        internal string SelectLayout(string name)
+        {
+            var i = IndexOf(name);
+            if (i < 0) return UnknownLayout(name);
+            ActiveLayoutIndex = i;
+            return null;
+        }
+
+        /// <summary>Next (+1) or previous (-1) layout, wrapping around.</summary>
+        internal void StepLayout(int step)
+        {
+            var n = Layouts.Length;
+            ActiveLayoutIndex = ((ActiveLayoutIndex + step) % n + n) % n;
+        }
+
+        /// <summary>Copies the active layout under <paramref name="name"/> (replacing a layout of that name) and selects it.</summary>
+        internal string SaveLayoutAs(string name)
+        {
+            name = (name ?? "").Trim();
+            if (name.Length == 0) return "Give the new layout a 'name'";
+            if (name.Length > 40) return "Layout names are limited to 40 characters";
+            var copy = ActiveLayout.Clone();
+            copy.Name = name;
+            var i = IndexOf(name);
+            if (i >= 0)
+            {
+                Layouts[i] = copy;
+                ActiveLayoutIndex = i;
+            }
+            else
+            {
+                Layouts = Layouts.Concat(new[] { copy }).ToArray();
+                ActiveLayoutIndex = Layouts.Length - 1;
+            }
+            return null;
+        }
+
+        internal string DeleteLayout(string name)
+        {
+            var i = IndexOf(name);
+            if (i < 0) return UnknownLayout(name);
+            if (Layouts.Length == 1) return "The last layout cannot be deleted";
+            var active = ActiveLayout;
+            Layouts = Layouts.Where((_, j) => j != i).ToArray();
+            ActiveLayoutIndex = Math.Max(0, Array.IndexOf(Layouts, active));
+            return null;
+        }
+
+        internal string RenameLayout(string name, string to)
+        {
+            var i = IndexOf(name);
+            if (i < 0) return UnknownLayout(name);
+            to = (to ?? "").Trim();
+            if (to.Length == 0) return "Give the new name as 'to'";
+            if (to.Length > 40) return "Layout names are limited to 40 characters";
+            var other = IndexOf(to);
+            if (other >= 0 && other != i) return $"There is already a layout named '{Layouts[other].Name}'";
+            Layouts[i].Name = to;
+            return null;
+        }
+
+        string SetLayouts(object value)
+        {
+            if (!(value is List<object> list) || list.Count == 0) return "Invalid value for 'layouts': expected a non-empty list of layouts";
+            var layouts = new List<Layout>();
+            foreach (var item in list)
+            {
+                var layout = Layout.FromObject(item, out var error);
+                if (layout == null) return $"Invalid value for 'layouts': {error}";
+                if (layouts.Any(l => l.Name.Equals(layout.Name, StringComparison.OrdinalIgnoreCase)))
+                    return $"Invalid value for 'layouts': two layouts are named '{layout.Name}'";
+                layouts.Add(layout);
+            }
+            Layouts = layouts.ToArray();
+            ActiveLayoutIndex = 0;
+            return null;
+        }
+
+        /// <summary>Applies a pre-layouts flat value (e.g. xPercent) to every presenter view layout.</summary>
+        internal void ApplyToPresenterLayouts(string key, object value)
+        {
+            foreach (var layout in Layouts.Where(l => !l.IsScreen))
+            {
+                try { layout.Apply(key, value); }
+                catch (Exception ex) when (ex is FormatException || ex is InvalidCastException || ex is ArgumentException) { }
+            }
+        }
+
         internal static bool IsLegacyKey(string key) => LegacyKeys.Contains(key, StringComparer.OrdinalIgnoreCase);
 
         internal static bool IsResetOnUpgrade(string key, int fileVersion) =>
             fileVersion < 2 && ResetBeforeV2.Contains(key, StringComparer.OrdinalIgnoreCase);
 
-        static double Range(double v, double min, double max)
+        internal static double Range(double v, double min, double max)
         {
             if (double.IsNaN(v) || v < min || v > max) throw new ArgumentException($"must be between {min} and {max}");
             return v;
@@ -221,11 +332,18 @@ namespace PPTimer.Core
                     throw new FormatException("config root must be an object");
 
                 var fileVersion = values.TryGetValue("configVersion", out var v) ? (int)Settings.ToDouble(v) : 1;
+                var hasLayouts = values.Keys.Any(k => k.Equals("layouts", StringComparison.OrdinalIgnoreCase));
                 var next = new Settings();
-                foreach (var kv in values)
+                foreach (var kv in InApplyOrder(values))
                 {
                     if (Settings.IsLegacyKey(kv.Key) || kv.Key.Equals("configVersion", StringComparison.OrdinalIgnoreCase)) continue;
                     if (Settings.IsResetOnUpgrade(kv.Key, fileVersion)) continue;
+                    if (!hasLayouts && Layout.IsKey(kv.Key))
+                    {
+                        // Written before layouts existed: the position was for the presenter view.
+                        next.ApplyToPresenterLayouts(kv.Key, kv.Value);
+                        continue;
+                    }
                     var error = next.Apply(kv.Key, kv.Value);
                     if (error != null) Log.Warn($"config.json: {error} (using default)");
                 }
@@ -259,7 +377,7 @@ namespace PPTimer.Core
             {
                 var next = current.Clone();
                 var any = false;
-                foreach (var kv in changes)
+                foreach (var kv in InApplyOrder(changes))
                 {
                     if (!allowAll && !Settings.RuntimeKeys.Contains(kv.Key, StringComparer.OrdinalIgnoreCase))
                         return $"'{kv.Key}' cannot be changed at runtime (runtime settings: {string.Join(", ", Settings.RuntimeKeys)})";
@@ -274,6 +392,29 @@ namespace PPTimer.Core
             Changed?.Invoke();
             return null;
         }
+
+        /// <summary>
+        /// Runs <paramref name="change"/> on a copy of the settings; if it returns null (no error), the copy becomes
+        /// current and is saved. Returns the error message, or null on success.
+        /// </summary>
+        public string Mutate(Func<Settings, string> change)
+        {
+            lock (gate)
+            {
+                var next = current.Clone();
+                var error = change(next);
+                if (error != null) return error;
+                Volatile.Write(ref current, next);
+                Save(next);
+            }
+            Changed?.Invoke();
+            return null;
+        }
+
+        /// <summary>"layouts" first, then "layout" (which one is active), then the values that go into it.</summary>
+        static IEnumerable<KeyValuePair<string, T>> InApplyOrder<T>(IEnumerable<KeyValuePair<string, T>> values) =>
+            values.OrderBy(kv => kv.Key.Equals("layouts", StringComparison.OrdinalIgnoreCase) ? 0
+                : kv.Key.Equals("layout", StringComparison.OrdinalIgnoreCase) ? 1 : 2);
 
         /// <summary>Flips an on/off runtime setting in one step. Returns an error message, or null on success.</summary>
         public string Toggle(string key)
@@ -297,7 +438,7 @@ namespace PPTimer.Core
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(path));
-                File.WriteAllText(path, Json.Serialize(settings.ToDictionary(includeSecrets: true), indent: true) + "\n");
+                File.WriteAllText(path, Json.Serialize(settings.ToFileDictionary(), indent: true) + "\n");
             }
             catch (Exception ex)
             {

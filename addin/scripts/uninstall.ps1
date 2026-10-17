@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
-  Removes the PPTimer add-in registration for the current user, and the URL reservation and
-  firewall rule that install.ps1 added (asks for admin permission if they exist).
+  Removes PPTimer for the current user: quits it, removes the Start menu shortcut, the start with Windows entry,
+  the old PowerPoint add-in registration (1.0.x) and the URL reservation and firewall rule that install.ps1
+  added (asks for admin permission if they exist).
   -RemoveFiles also deletes %LOCALAPPDATA%\PPTimer\bin (config.json and the log are kept).
 #>
 [CmdletBinding()]
@@ -10,25 +11,29 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
-$Clsid = '{39674B3C-941D-4E54-9410-B0F926196B0B}'
-$ProgId = 'PPTimer.Connect'
-
-if (Get-Process POWERPNT -ErrorAction SilentlyContinue) {
-    throw 'PowerPoint is running. Close it and run this again.'
+$running = Get-Process PPTimer -ErrorAction SilentlyContinue
+if ($running) {
+    $running | Stop-Process -Force
+    $running | Wait-Process -Timeout 10 -ErrorAction SilentlyContinue
 }
 
+Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'PPTimer' -ErrorAction SilentlyContinue
+$lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'PPTimer.lnk'
+if (Test-Path $lnk) { Remove-Item $lnk -Force }
+
+# The PowerPoint add-in of PPTimer 1.0.x, if it is still registered.
+$Clsid = '{39674B3C-941D-4E54-9410-B0F926196B0B}'
+$ProgId = 'PPTimer.Connect'
 foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
     $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, $view)
     try {
         $base.DeleteSubKeyTree("Software\Classes\CLSID\$Clsid", $false)
         $base.DeleteSubKeyTree("Software\Classes\$ProgId", $false)
-        if ($view -eq [Microsoft.Win32.RegistryView]::Registry64) {
-            $base.DeleteSubKeyTree("Software\Microsoft\Office\PowerPoint\Addins\$ProgId", $false)
-            $list = $base.OpenSubKey('Software\Microsoft\Office\16.0\PowerPoint\Resiliency\DoNotDisableAddinList', $true)
-            if ($list) {
-                $list.DeleteValue($ProgId, $false)
-                $list.Close()
-            }
+        $base.DeleteSubKeyTree("Software\Microsoft\Office\PowerPoint\Addins\$ProgId", $false)
+        $list = $base.OpenSubKey('Software\Microsoft\Office\16.0\PowerPoint\Resiliency\DoNotDisableAddinList', $true)
+        if ($list) {
+            $list.DeleteValue($ProgId, $false)
+            $list.Close()
         }
     }
     finally {
@@ -41,7 +46,7 @@ if ($RemoveFiles) {
     if (Test-Path $bin) { Remove-Item $bin -Recurse -Force }
 }
 
-Write-Host 'PPTimer unregistered.' -ForegroundColor Green
+Write-Host 'PPTimer removed.' -ForegroundColor Green
 
 # Network access (admin part, done by install.ps1 elevated).
 $port = 9595

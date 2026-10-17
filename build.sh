@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Builds the PowerPoint add-in on macOS (or Linux) and assembles dist/PPTimer-win/,
+# Builds the Windows app (PPTimer.exe) on macOS (or Linux) and assembles dist/PPTimer-win/,
 # the folder you copy to the Windows machine and run install.cmd from.
 #
-#   ./build.sh            build the add-in
+#   ./build.sh            build the Windows app
 #   ./build.sh dev        run the dev server (same API, no PowerPoint) on http://localhost:9595/
 #   ./build.sh mac        build the Mac app -> dist/PPTimer-mac/PPTimer.app and dist/PPTimer-mac.zip
 #   ./build.sh mac run    build it, then quit the running copy and start the new one
 set -euo pipefail
 cd "$(dirname "$0")"
 
-MAC_VERSION=1.0.3
+MAC_VERSION=1.1.0
 
 if [[ "${1:-}" == "mac" ]]; then
   # Universal (Apple silicon + Intel) needs full Xcode; Command Line Tools alone build this Mac's arch.
@@ -53,7 +53,7 @@ fi
 OUT=dist/PPTimer-win
 rm -rf "$OUT"
 mkdir -p "$OUT"
-cp addin/PPTimer/bin/Release/net48/PPTimer.dll addin/PPTimer/bin/Release/net48/PPTimer.pdb "$OUT/"
+cp addin/PPTimer/bin/Release/net48/PPTimer.{exe,exe.config,pdb} "$OUT/"
 cp addin/scripts/*.ps1 addin/scripts/*.cmd "$OUT/"
 
 (cd dist && rm -f PPTimer-win.zip && zip -qr PPTimer-win.zip PPTimer-win)

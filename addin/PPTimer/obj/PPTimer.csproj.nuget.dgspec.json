@@ -5,7 +5,7 @@
   },
   "projects": {
     "/Users/marcin/CascadeProjects/PPtimer/addin/PPTimer/PPTimer.csproj": {
-      "version": "1.0.3",
+      "version": "1.1.0",
       "restore": {
         "projectUniqueName": "/Users/marcin/CascadeProjects/PPtimer/addin/PPTimer/PPTimer.csproj",
         "projectName": "PPTimer",
